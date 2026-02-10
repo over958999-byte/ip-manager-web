@@ -92,6 +92,67 @@ class Database {
     
     // ==================== IP跳转相关 ====================
     
+    /**
+     * 获取跳转规则（支持分页和搜索）
+     * @param int $page 页码（从1开始）
+     * @param int $perPage 每页数量
+     * @param string $search 搜索关键词
+     * @return array ['data' => [...], 'total' => int, 'page' => int, 'per_page' => int]
+     */
+    public function getRedirectsPaginated(int $page = 1, int $perPage = 50, string $search = ''): array {
+        $page = max(1, $page);
+        $perPage = max(1, min(200, $perPage)); // 限制最大200条
+        $offset = ($page - 1) * $perPage;
+        
+        // 构建查询条件
+        $where = '';
+        $params = [];
+        if (!empty($search)) {
+            $where = "WHERE ip LIKE ? OR url LIKE ? OR note LIKE ?";
+            $searchParam = "%{$search}%";
+            $params = [$searchParam, $searchParam, $searchParam];
+        }
+        
+        // 获取总数
+        $countSql = "SELECT COUNT(*) FROM redirects {$where}";
+        $stmt = $this->pdo->prepare($countSql);
+        $stmt->execute($params);
+        $total = (int)$stmt->fetchColumn();
+        
+        // 获取数据
+        $dataSql = "SELECT * FROM redirects {$where} ORDER BY created_at DESC LIMIT ? OFFSET ?";
+        $stmt = $this->pdo->prepare($dataSql);
+        $stmt->execute(array_merge($params, [$perPage, $offset]));
+        
+        $redirects = [];
+        while ($row = $stmt->fetch()) {
+            $countryWhitelist = $row['country_whitelist'] ? json_decode($row['country_whitelist'], true) : [];
+            $redirects[$row['ip']] = [
+                'url' => $row['url'],
+                'enabled' => (bool)$row['enabled'],
+                'note' => $row['note'] ?? '',
+                'block_desktop' => (bool)$row['block_desktop'],
+                'block_ios' => (bool)$row['block_ios'],
+                'block_android' => (bool)$row['block_android'],
+                'country_whitelist_enabled' => (bool)$row['country_whitelist_enabled'],
+                'country_whitelist' => $countryWhitelist ?: [],
+                'created_at' => $row['created_at'],
+                'updated_at' => $row['updated_at']
+            ];
+        }
+        
+        return [
+            'data' => $redirects,
+            'total' => $total,
+            'page' => $page,
+            'per_page' => $perPage,
+            'total_pages' => ceil($total / $perPage),
+        ];
+    }
+    
+    /**
+     * 获取所有跳转规则（兼容旧版）
+     */
     public function getRedirects() {
         $stmt = $this->pdo->query("SELECT * FROM redirects ORDER BY created_at DESC");
         $redirects = [];

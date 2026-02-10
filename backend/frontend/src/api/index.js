@@ -1,6 +1,8 @@
 import axios from 'axios'
 import { ElMessage } from 'element-plus'
 
+// ==================== 请求配置 ====================
+
 // 创建axios实例
 const request = axios.create({
   baseURL: '/api.php',
@@ -8,10 +10,118 @@ const request = axios.create({
   withCredentials: true
 })
 
-// 响应拦截器
+// 重试配置
+const retryConfig = {
+  maxRetries: 3,
+  retryDelay: 1000,
+  retryableStatuses: [408, 500, 502, 503, 504],
+}
+
+// 请求取消令牌存储
+const pendingRequests = new Map()
+
+// 生成请求唯一键
+const getRequestKey = (config) => {
+  const { method, url, params, data } = config
+  return [method, url, JSON.stringify(params), JSON.stringify(data)].join('&')
+}
+
+// 取消重复请求
+const cancelDuplicateRequest = (config) => {
+  const requestKey = getRequestKey(config)
+  if (pendingRequests.has(requestKey)) {
+    const controller = pendingRequests.get(requestKey)
+    controller.abort()
+    pendingRequests.delete(requestKey)
+  }
+}
+
+// 添加请求到pending
+const addPendingRequest = (config) => {
+  const requestKey = getRequestKey(config)
+  if (!config.signal) {
+    const controller = new AbortController()
+    config.signal = controller.signal
+    pendingRequests.set(requestKey, controller)
+  }
+}
+
+// 移除请求从pending
+const removePendingRequest = (config) => {
+  if (config) {
+    const requestKey = getRequestKey(config)
+    pendingRequests.delete(requestKey)
+  }
+}
+
+// ==================== 请求拦截器 ====================
+
+request.interceptors.request.use(
+  config => {
+    // 取消重复请求（可选，某些操作需要重复）
+    if (config.cancelDuplicate !== false) {
+      cancelDuplicateRequest(config)
+      addPendingRequest(config)
+    }
+    
+    // 添加 CSRF Token（如果启用）
+    const csrfToken = localStorage.getItem('csrf_token')
+    if (csrfToken) {
+      config.headers['X-CSRF-Token'] = csrfToken
+    }
+    
+    return config
+  },
+  error => Promise.reject(error)
+)
+
+// ==================== 响应拦截器 ====================
+
 request.interceptors.response.use(
-  response => response.data,
-  error => {
+  response => {
+    removePendingRequest(response.config)
+    
+    // 保存 CSRF Token
+    if (response.data?.csrf_token) {
+      localStorage.setItem('csrf_token', response.data.csrf_token)
+    }
+    
+    return response.data
+  },
+  async error => {
+    const config = error.config
+    removePendingRequest(config)
+    
+    // 请求被取消
+    if (axios.isCancel(error)) {
+      console.log('请求已取消:', config?.url)
+      return Promise.reject(error)
+    }
+    
+    // 重试逻辑
+    if (config && !config.__retryCount) {
+      config.__retryCount = 0
+    }
+    
+    const shouldRetry = config && 
+      config.__retryCount < retryConfig.maxRetries &&
+      (retryConfig.retryableStatuses.includes(error.response?.status) || !error.response)
+    
+    if (shouldRetry) {
+      config.__retryCount++
+      console.log(`请求重试 (${config.__retryCount}/${retryConfig.maxRetries}):`, config.url)
+      
+      // 等待后重试
+      await new Promise(resolve => setTimeout(resolve, retryConfig.retryDelay * config.__retryCount))
+      
+      // 移除旧的取消令牌
+      delete config.signal
+      config.cancelDuplicate = false
+      
+      return request(config)
+    }
+    
+    // 显示错误消息
     const message =
       error?.response?.data?.message ||
       error?.message ||
@@ -20,6 +130,29 @@ request.interceptors.response.use(
     return Promise.reject(error)
   }
 )
+
+// ==================== 工具函数 ====================
+
+/**
+ * 取消所有pending请求
+ */
+export const cancelAllRequests = () => {
+  pendingRequests.forEach((controller, key) => {
+    controller.abort()
+  })
+  pendingRequests.clear()
+}
+
+/**
+ * 创建可取消的请求
+ */
+export const createCancellableRequest = () => {
+  const controller = new AbortController()
+  return {
+    signal: controller.signal,
+    cancel: () => controller.abort()
+  }
+}
 
 // ==================== 统一跳转管理 API ====================
 

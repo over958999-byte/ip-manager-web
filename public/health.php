@@ -4,6 +4,10 @@
  * 
  * 访问: /health.php
  * 返回: JSON格式的系统状态
+ * 
+ * 参数:
+ *   ?detail=1  - 返回详细信息
+ *   ?format=prometheus - 返回 Prometheus 格式
  */
 
 header('Content-Type: application/json');
@@ -15,11 +19,20 @@ require_once __DIR__ . '/../backend/core/rate_limiter.php';
 require_once __DIR__ . '/../backend/core/circuit_breaker.php';
 require_once __DIR__ . '/../backend/core/message_queue.php';
 
+// 可选加载日志模块
+$loggerFile = __DIR__ . '/../backend/core/logger.php';
+if (file_exists($loggerFile)) {
+    require_once $loggerFile;
+}
+
 $startTime = microtime(true);
+$showDetail = isset($_GET['detail']);
+$prometheusFormat = ($_GET['format'] ?? '') === 'prometheus';
 
 $health = [
     'status' => 'healthy',
     'timestamp' => date('c'),
+    'version' => '2.0.0',
     'components' => [],
     'metrics' => [],
 ];
@@ -28,17 +41,36 @@ $health = [
 try {
     $db = Database::getInstance();
     $pdo = $db->getConnection();
+    
+    // 连接测试
+    $dbStart = microtime(true);
     $stmt = $pdo->query("SELECT 1");
     $stmt->fetch();
+    $dbLatency = (microtime(true) - $dbStart) * 1000;
     
     $health['components']['database'] = [
         'status' => 'healthy',
         'type' => 'mysql',
+        'latency_ms' => round($dbLatency, 2),
     ];
     
     // 获取数据库统计
     $stats = $pdo->query("SHOW STATUS LIKE 'Threads_connected'")->fetch(PDO::FETCH_ASSOC);
     $health['metrics']['db_connections'] = (int)($stats['Value'] ?? 0);
+    
+    // 获取更多数据库指标
+    if ($showDetail) {
+        $stats = $pdo->query("SHOW STATUS LIKE 'Questions'")->fetch(PDO::FETCH_ASSOC);
+        $health['metrics']['db_queries_total'] = (int)($stats['Value'] ?? 0);
+        
+        $stats = $pdo->query("SHOW STATUS LIKE 'Slow_queries'")->fetch(PDO::FETCH_ASSOC);
+        $health['metrics']['db_slow_queries'] = (int)($stats['Value'] ?? 0);
+        
+        // 数据库大小
+        $stmt = $pdo->query("SELECT SUM(data_length + index_length) as size FROM information_schema.tables WHERE table_schema = DATABASE()");
+        $row = $stmt->fetch(PDO::FETCH_ASSOC);
+        $health['metrics']['db_size_mb'] = round(($row['size'] ?? 0) / 1024 / 1024, 2);
+    }
     
 } catch (Exception $e) {
     $health['status'] = 'unhealthy';
@@ -47,6 +79,7 @@ try {
         'error' => $e->getMessage(),
     ];
 }
+
 
 // 检查缓存
 try {

@@ -61,36 +61,59 @@ function getVisitorIp() {
     return trim($ip);
 }
 
+// 加载 GeoIP 服务（如果可用）
+$geoIpService = null;
+$geoIpFile = __DIR__ . '/../backend/core/geoip.php';
+if (file_exists($geoIpFile)) {
+    require_once $geoIpFile;
+    $geoIpService = GeoIpService::getInstance();
+}
+
 /**
  * 获取IP国家代码（用于白名单检测）
+ * 使用新的 GeoIP 服务，支持多源查询和失败重试
  */
 function getIpCountryCode($ip) {
-    global $db;
+    global $db, $geoIpService;
     
     // 本地IP不查询
     if (in_array($ip, ['127.0.0.1', '::1', 'localhost']) || strpos($ip, '192.168.') === 0 || strpos($ip, '10.') === 0) {
         return 'LOCAL';
     }
     
+    // 使用新的 GeoIP 服务
+    if ($geoIpService) {
+        return $geoIpService->getCountryCode($ip);
+    }
+    
+    // 降级：使用旧的查询方式
     // 检查数据库缓存
     $cached = $db->getIpCountryCache($ip);
     if ($cached) {
         return $cached;
     }
     
-    // 使用ip-api.com免费接口
-    $url = "http://ip-api.com/json/{$ip}?fields=status,countryCode,country";
-    $context = stream_context_create(['http' => ['timeout' => 1, 'ignore_errors' => true]]);
-    $response = @file_get_contents($url, false, $context);
-    
+    // 使用ip-api.com免费接口（带重试）
+    $maxRetries = 2;
     $countryCode = 'UNKNOWN';
     $countryName = '未知';
     
-    if ($response) {
-        $data = json_decode($response, true);
-        if ($data && $data['status'] === 'success') {
-            $countryCode = $data['countryCode'] ?? 'UNKNOWN';
-            $countryName = $data['country'] ?? '未知';
+    for ($retry = 0; $retry <= $maxRetries; $retry++) {
+        $url = "http://ip-api.com/json/{$ip}?fields=status,countryCode,country";
+        $context = stream_context_create(['http' => ['timeout' => 2, 'ignore_errors' => true]]);
+        $response = @file_get_contents($url, false, $context);
+        
+        if ($response) {
+            $data = json_decode($response, true);
+            if ($data && $data['status'] === 'success') {
+                $countryCode = $data['countryCode'] ?? 'UNKNOWN';
+                $countryName = $data['country'] ?? '未知';
+                break;
+            }
+        }
+        
+        if ($retry < $maxRetries) {
+            usleep(100000); // 100ms 后重试
         }
     }
     
@@ -104,13 +127,19 @@ function getIpCountryCode($ip) {
  * 获取IP国家名称
  */
 function getIpCountry($ip) {
-    global $db;
+    global $db, $geoIpService;
     
     // 本地IP不查询
     if (in_array($ip, ['127.0.0.1', '::1', 'localhost']) || strpos($ip, '192.168.') === 0 || strpos($ip, '10.') === 0) {
         return '本地';
     }
     
+    // 使用新的 GeoIP 服务
+    if ($geoIpService) {
+        return $geoIpService->getCountryName($ip);
+    }
+    
+    // 降级：使用旧的查询方式
     // 检查数据库缓存
     $cached = $db->getIpCountryNameCache($ip);
     if ($cached) {

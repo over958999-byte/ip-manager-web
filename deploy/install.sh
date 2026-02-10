@@ -884,6 +884,119 @@ configure_firewall() {
     fi
 }
 
+# 初始化安全设置
+initialize_security() {
+    log_step "初始化安全设置..."
+    
+    cd "$INSTALL_DIR"
+    
+    # 创建日志目录
+    mkdir -p "$INSTALL_DIR/logs"
+    chown www-data:www-data "$INSTALL_DIR/logs" 2>/dev/null || chown nginx:nginx "$INSTALL_DIR/logs" 2>/dev/null || true
+    chmod 755 "$INSTALL_DIR/logs"
+    
+    # 运行密码迁移脚本（将明文密码迁移到哈希存储）
+    if [ -f "$INSTALL_DIR/backend/migrate_password.php" ]; then
+        log_info "执行密码安全迁移..."
+        php "$INSTALL_DIR/backend/migrate_password.php" << EOF
+n
+EOF
+        log_info "密码迁移完成"
+    fi
+    
+    # 初始化安全配置到数据库
+    log_info "初始化安全配置..."
+    mysql "$DB_NAME" << EOF 2>/dev/null || true
+-- 设置密码哈希（如果尚未设置）
+INSERT IGNORE INTO config (\`key\`, \`value\`) VALUES ('admin_password_hash', '');
+
+-- CSRF 保护默认关闭（可在设置中开启）
+INSERT INTO config (\`key\`, \`value\`) VALUES ('csrf_enabled', 'false')
+ON DUPLICATE KEY UPDATE \`value\` = \`value\`;
+
+-- 设置预热密钥
+INSERT INTO config (\`key\`, \`value\`) VALUES ('warmup_secret_key', '$(openssl rand -hex 16)')
+ON DUPLICATE KEY UPDATE \`value\` = \`value\`;
+
+-- 设置默认安全配置
+INSERT INTO config (\`key\`, \`value\`) VALUES ('security_config', '{"session_lifetime":1800,"max_login_attempts":5,"lockout_duration":900}')
+ON DUPLICATE KEY UPDATE \`value\` = \`value\`;
+EOF
+    
+    log_info "安全设置初始化完成"
+}
+
+# 缓存预热
+warmup_cache() {
+    log_step "执行缓存预热..."
+    
+    cd "$INSTALL_DIR"
+    
+    # 检查预热脚本是否存在
+    if [ -f "$INSTALL_DIR/public/warmup.php" ]; then
+        log_info "预热跳转规则缓存..."
+        php "$INSTALL_DIR/public/warmup.php" --quick 2>/dev/null || true
+        log_info "缓存预热完成"
+    else
+        log_warn "预热脚本不存在，跳过缓存预热"
+    fi
+    
+    # 设置定时预热任务（每5分钟）
+    log_info "配置定时缓存预热..."
+    CRON_JOB="*/5 * * * * php $INSTALL_DIR/public/warmup.php --quick > /dev/null 2>&1"
+    
+    # 检查是否已存在
+    if ! crontab -l 2>/dev/null | grep -q "warmup.php"; then
+        (crontab -l 2>/dev/null; echo "$CRON_JOB") | crontab -
+        log_info "定时预热任务已添加"
+    else
+        log_info "定时预热任务已存在"
+    fi
+}
+
+# 系统健康检查
+health_check() {
+    log_step "执行系统健康检查..."
+    
+    # 等待服务完全启动
+    sleep 2
+    
+    # 检查 PHP-FPM
+    if systemctl is-active --quiet php${PHP_VERSION}-fpm 2>/dev/null || systemctl is-active --quiet php-fpm 2>/dev/null; then
+        log_info "PHP-FPM: 运行中 ✓"
+    else
+        log_warn "PHP-FPM: 未运行"
+    fi
+    
+    # 检查 Nginx
+    if systemctl is-active --quiet nginx; then
+        log_info "Nginx: 运行中 ✓"
+    else
+        log_warn "Nginx: 未运行"
+    fi
+    
+    # 检查 MySQL
+    if systemctl is-active --quiet mysql 2>/dev/null || systemctl is-active --quiet mysqld 2>/dev/null || systemctl is-active --quiet mariadb 2>/dev/null; then
+        log_info "MySQL: 运行中 ✓"
+    else
+        log_warn "MySQL: 未运行"
+    fi
+    
+    # 检查健康端点
+    if [ -f "$INSTALL_DIR/public/health.php" ]; then
+        HEALTH_RESULT=$(php "$INSTALL_DIR/public/health.php" 2>/dev/null | head -c 500 || echo '{}')
+        if echo "$HEALTH_RESULT" | grep -q '"status":"healthy"'; then
+            log_info "系统健康检查: 通过 ✓"
+        elif echo "$HEALTH_RESULT" | grep -q '"status":"degraded"'; then
+            log_warn "系统健康检查: 部分降级"
+        else
+            log_warn "系统健康检查: 无法确定状态"
+        fi
+    fi
+    
+    echo ""
+}
+
 # 打印安装信息
 print_info() {
     # 获取服务器IP
@@ -903,14 +1016,26 @@ print_info() {
     echo -e "${YELLOW}【网站信息】${NC}"
     echo -e "  安装目录:   ${BLUE}${INSTALL_DIR}${NC}"
     echo -e "  网站地址:   ${BLUE}http://${SITE_HOST}${NC}"
+    echo -e "  健康检查:   ${BLUE}http://${SITE_HOST}/health.php${NC}"
     echo ""
     echo -e "${YELLOW}【数据库信息】${NC}"
     echo -e "  数据库名:   ${BLUE}${DB_NAME}${NC}"
     echo -e "  用户名:     ${BLUE}${DB_USER}${NC}"
     echo -e "  密码:       ${BLUE}${DB_PASS}${NC}"
     echo ""
+    echo -e "${YELLOW}【安全特性】${NC}"
+    echo -e "  密码存储:   ${GREEN}✓ bcrypt哈希加密${NC}"
+    echo -e "  Session:    ${GREEN}✓ 安全配置已启用${NC}"
+    echo -e "  日志目录:   ${BLUE}${INSTALL_DIR}/logs${NC}"
+    echo -e "  缓存预热:   ${GREEN}✓ 已配置定时任务${NC}"
+    echo ""
     echo "============================================================"
-    echo -e "${RED}⚠ 请登录后台后立即修改默认密码！${NC}"
+    echo -e "${RED}⚠ 重要安全提示:${NC}"
+    echo -e "  1. 请登录后台后立即修改默认密码！"
+    echo -e "  2. 建议开启CSRF保护: 在系统设置中启用"
+    echo -e "  3. 建议配置HTTPS并使用Cloudflare等CDN"
+    echo -e "  4. 定期检查 ${INSTALL_DIR}/logs 下的日志文件"
+    echo "============================================================"
     echo -e "${YELLOW}请妥善保存以上信息！${NC}"
     echo "============================================================"
     echo ""
@@ -929,13 +1054,29 @@ IP管理器安装信息
 【网站信息】
   安装目录: ${INSTALL_DIR}
   网站地址: http://${SITE_HOST}
+  健康检查: http://${SITE_HOST}/health.php
 
 【数据库信息】
   数据库名: ${DB_NAME}
   用户名: ${DB_USER}
   密码: ${DB_PASS}
 
-⚠ 请登录后台后立即修改默认密码！
+【安全特性】
+  密码存储: bcrypt哈希加密
+  Session: 安全配置已启用
+  日志目录: ${INSTALL_DIR}/logs
+  缓存预热: 已配置定时任务 (每5分钟)
+
+【维护命令】
+  手动缓存预热: php ${INSTALL_DIR}/public/warmup.php
+  查看健康状态: curl http://localhost/health.php?detail=1
+  查看日志: tail -f ${INSTALL_DIR}/logs/app.log
+
+⚠ 重要安全提示:
+  1. 请登录后台后立即修改默认密码！
+  2. 建议开启CSRF保护: 在系统设置中启用
+  3. 建议配置HTTPS并使用Cloudflare等CDN
+  4. 定期检查日志文件
 EOF
     chmod 600 "$INSTALL_DIR/install_info.txt"
     log_info "安装信息已保存到: ${INSTALL_DIR}/install_info.txt"
@@ -1031,6 +1172,9 @@ main() {
             set_permissions
             start_services
             configure_firewall
+            initialize_security
+            warmup_cache
+            health_check
             ;;
         centos|rhel|rocky|almalinux)
             # 如果有任何组件需要安装
@@ -1046,6 +1190,9 @@ main() {
             set_permissions
             start_services
             configure_firewall
+            initialize_security
+            warmup_cache
+            health_check
             ;;
         *)
             log_error "不支持的操作系统: $OS"

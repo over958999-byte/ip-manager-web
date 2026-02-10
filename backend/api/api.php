@@ -3,9 +3,37 @@
  * 后台API接口 - 数据库版本
  */
 
-session_start();
-
+// 加载核心模块
 require_once __DIR__ . '/../core/database.php';
+require_once __DIR__ . '/../core/security.php';
+require_once __DIR__ . '/../core/validator.php';
+require_once __DIR__ . '/../core/logger.php';
+
+// 全局异常处理
+set_exception_handler(function(Throwable $e) {
+    Logger::logError('未捕获异常', [
+        'message' => $e->getMessage(),
+        'file' => $e->getFile(),
+        'line' => $e->getLine(),
+    ]);
+    http_response_code(200);
+    echo json_encode([
+        'success' => false,
+        'message' => '服务器内部错误，请稍后重试'
+    ], JSON_UNESCAPED_UNICODE);
+    exit;
+});
+
+set_error_handler(function($severity, $message, $file, $line) {
+    if (!(error_reporting() & $severity)) {
+        return false;
+    }
+    throw new ErrorException($message, 0, $severity, $file, $line);
+});
+
+// 使用安全模块启动 session
+$security = Security::getInstance();
+$security->startSession();
 
 // CORS支持（开发环境）
 $origin = $_SERVER['HTTP_ORIGIN'] ?? '';
@@ -205,15 +233,72 @@ function logApiCall($db, $tokenId, $action, $requestData, $responseCode = 200) {
 $input = json_decode(file_get_contents('php://input'), true) ?? [];
 $action = $_GET['action'] ?? $input['action'] ?? '';
 
+// 嘆健康检查和 CSRF token 获取不需要 CSRF 验证
+$csrfExemptActions = ['login', 'check_login', 'logout', 'get_csrf_token', 'health'];
+
+// CSRF 保护（仅对 POST 请求）
+$csrfEnabled = $db->getConfig('csrf_enabled', false); // 默认关闭，可在设置中开启
+if ($csrfEnabled && $_SERVER['REQUEST_METHOD'] === 'POST' && !in_array($action, $csrfExemptActions)) {
+    $csrfToken = $security->getCsrfTokenFromRequest();
+    if (!$security->validateCsrfToken($csrfToken)) {
+        Logger::logSecurityEvent('CSRF验证失败', ['action' => $action]);
+        echo json_encode(['success' => false, 'message' => 'CSRF验证失败，请刷新页面重试']);
+        exit;
+    }
+}
+
 // 处理不同的API请求
 switch ($action) {
+    // 获取 CSRF Token
+    case 'get_csrf_token':
+        echo json_encode([
+            'success' => true,
+            'csrf_token' => $security->getCsrfToken()
+        ]);
+        break;
+
     case 'login':
         $password = $input['password'] ?? '';
-        $admin_password = $db->getConfig('admin_password', 'admin123');
-        if ($password === $admin_password) {
-            $_SESSION['logged_in'] = true;
-            echo json_encode(['success' => true, 'message' => '登录成功']);
+        $storedPassword = $db->getConfig('admin_password', 'admin123');
+        $passwordHash = $db->getConfig('admin_password_hash', '');
+        
+        $loginSuccess = false;
+        
+        // 优先使用哈希密码验证
+        if (!empty($passwordHash)) {
+            $loginSuccess = $security->verifyPassword($password, $passwordHash);
+            
+            // 检查是否需要重新哈希（算法升级时）
+            if ($loginSuccess && $security->needsRehash($passwordHash)) {
+                $newHash = $security->hashPassword($password);
+                $db->setConfig('admin_password_hash', $newHash);
+            }
         } else {
+            // 兼容旧版明文密码
+            $loginSuccess = ($password === $storedPassword);
+            
+            // 如果明文密码验证成功，自动迁移到哈希存储
+            if ($loginSuccess) {
+                $newHash = $security->hashPassword($password);
+                $db->setConfig('admin_password_hash', $newHash);
+                // 清除明文密码（保留备用）
+                // $db->setConfig('admin_password', '');
+                Logger::logInfo('密码已自动迁移到哈希存储');
+            }
+        }
+        
+        if ($loginSuccess) {
+            $_SESSION['logged_in'] = true;
+            $_SESSION['login_time'] = time();
+            session_regenerate_id(true); // 防止会话固定攻击
+            Logger::logInfo('用户登录成功');
+            echo json_encode([
+                'success' => true, 
+                'message' => '登录成功',
+                'csrf_token' => $security->getCsrfToken()
+            ]);
+        } else {
+            Logger::logSecurityEvent('登录失败，密码错误');
             echo json_encode(['success' => false, 'message' => '密码错误']);
         }
         break;
@@ -354,18 +439,39 @@ switch ($action) {
         $old_password = $input['old_password'] ?? '';
         $new_password = $input['new_password'] ?? '';
         
-        if (empty($new_password)) {
-            echo json_encode(['success' => false, 'message' => '新密码不能为空']);
+        // 密码验证
+        $validator = new Validator(['new_password' => $new_password]);
+        $validator->required('new_password', '新密码不能为空')
+                  ->minLength('new_password', 6, '新密码长度不能少于6个字符');
+        
+        if ($validator->fails()) {
+            echo json_encode(['success' => false, 'message' => $validator->getFirstError()]);
             exit;
         }
         
-        $admin_password = $db->getConfig('admin_password', 'admin123');
-        if ($old_password !== $admin_password) {
+        // 验证旧密码
+        $passwordHash = $db->getConfig('admin_password_hash', '');
+        $storedPassword = $db->getConfig('admin_password', 'admin123');
+        
+        $oldPasswordValid = false;
+        if (!empty($passwordHash)) {
+            $oldPasswordValid = $security->verifyPassword($old_password, $passwordHash);
+        } else {
+            $oldPasswordValid = ($old_password === $storedPassword);
+        }
+        
+        if (!$oldPasswordValid) {
+            Logger::logSecurityEvent('修改密码失败，原密码错误');
             echo json_encode(['success' => false, 'message' => '原密码错误']);
             exit;
         }
         
-        if ($db->setConfig('admin_password', $new_password)) {
+        // 保存新密码（哈希存储）
+        $newHash = $security->hashPassword($new_password);
+        if ($db->setConfig('admin_password_hash', $newHash)) {
+            // 清除旧的明文密码
+            $db->setConfig('admin_password', '');
+            Logger::logInfo('管理员密码已修改');
             echo json_encode(['success' => true, 'message' => '密码修改成功']);
         } else {
             echo json_encode(['success' => false, 'message' => '保存失败']);
