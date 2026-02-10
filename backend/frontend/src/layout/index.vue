@@ -21,9 +21,9 @@
           <el-icon><Promotion /></el-icon>
           <template #title>跳转管理</template>
         </el-menu-item>
-        <el-menu-item index="/ip-pool">
+        <el-menu-item index="/resource-pool">
           <el-icon><Coin /></el-icon>
-          <template #title>IP池管理</template>
+          <template #title>资源池</template>
         </el-menu-item>
         <el-menu-item index="/antibot">
           <el-icon><Shield /></el-icon>
