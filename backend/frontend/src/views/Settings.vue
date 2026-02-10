@@ -352,8 +352,8 @@ const checkUpdate = async () => {
 // 执行更新
 const doUpdate = async () => {
   const confirmMsg = updateInfo.has_update 
-    ? `确定要更新到最新版本 (${updateInfo.remote_version}) 吗？`
-    : '确定要重新部署当前版本吗？'
+    ? `确定要更新到最新版本 (${updateInfo.remote_version}) 吗？\n\n更新过程会自动编译前端，可能需要1-2分钟。`
+    : '确定要重新部署当前版本吗？\n\n更新过程会自动编译前端，可能需要1-2分钟。'
   
   await ElMessageBox.confirm(confirmMsg, '确认更新', {
     type: 'warning',
@@ -365,19 +365,23 @@ const doUpdate = async () => {
   try {
     const res = await api.doUpdate()
     if (res.success) {
-      ElMessageBox.alert(
-        res.message + (res.need_rebuild ? '\n\n注意：前端需要重新构建！' : '\n\n页面将在3秒后刷新...'),
-        '更新成功',
-        {
-          type: 'success',
-          confirmButtonText: '确定',
-          callback: () => {
-            setTimeout(() => {
-              window.location.reload()
-            }, 3000)
-          }
+      let msg = res.message
+      if (res.build_success) {
+        msg += '\n\n✅ 前端已自动重新编译'
+      } else if (res.build_output) {
+        msg += '\n\n⚠️ 前端编译信息：\n' + res.build_output
+      }
+      msg += '\n\n页面将在3秒后刷新...'
+      
+      ElMessageBox.alert(msg, '更新成功', {
+        type: 'success',
+        confirmButtonText: '确定',
+        callback: () => {
+          setTimeout(() => {
+            window.location.reload()
+          }, 3000)
         }
-      )
+      })
     } else {
       ElMessage.error(res.message || '更新失败')
     }

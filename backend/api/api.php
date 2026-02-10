@@ -1373,20 +1373,55 @@ switch ($action) {
             file_put_contents($configFile, $configBackup);
         }
         
-        // 检查是否需要重新构建前端
-        $needRebuild = false;
+        // 自动构建前端
+        $buildOutput = [];
+        $buildSuccess = false;
         $frontendDir = $installDir . '/backend/frontend';
+        $distDir = $installDir . '/dist';
+        
         if (is_dir($frontendDir) && file_exists($frontendDir . '/package.json')) {
-            // 检查node_modules是否存在
-            if (!is_dir($frontendDir . '/node_modules')) {
-                $needRebuild = true;
+            chdir($frontendDir);
+            
+            // 检查 node 和 npm 是否可用
+            $nodeVersion = shell_exec('node -v 2>&1');
+            $npmVersion = shell_exec('npm -v 2>&1');
+            
+            if ($nodeVersion && $npmVersion && strpos($nodeVersion, 'v') === 0) {
+                // 检查 node_modules 是否存在，不存在则安装依赖
+                if (!is_dir($frontendDir . '/node_modules')) {
+                    $buildOutput[] = '正在安装依赖...';
+                    exec('npm install 2>&1', $npmInstallOutput, $npmInstallReturn);
+                    $buildOutput = array_merge($buildOutput, $npmInstallOutput);
+                    
+                    if ($npmInstallReturn !== 0) {
+                        $buildOutput[] = '依赖安装失败，跳过编译';
+                    }
+                }
+                
+                // 执行编译
+                if (is_dir($frontendDir . '/node_modules')) {
+                    $buildOutput[] = '正在编译前端...';
+                    exec('npm run build 2>&1', $npmBuildOutput, $npmBuildReturn);
+                    $buildOutput = array_merge($buildOutput, $npmBuildOutput);
+                    
+                    if ($npmBuildReturn === 0) {
+                        $buildSuccess = true;
+                        $buildOutput[] = '前端编译成功！';
+                    } else {
+                        $buildOutput[] = '前端编译失败';
+                    }
+                }
+            } else {
+                $buildOutput[] = '未检测到 Node.js 环境，跳过前端编译';
+                $buildOutput[] = '请手动执行: cd backend/frontend && npm install && npm run build';
             }
         }
         
         echo json_encode([
             'success' => true, 
-            'message' => '更新成功！' . ($needRebuild ? '前端需要重新构建，请执行 npm install && npm run build' : ''),
-            'need_rebuild' => $needRebuild,
+            'message' => '更新成功！' . ($buildSuccess ? '前端已自动重新编译。' : ''),
+            'build_success' => $buildSuccess,
+            'build_output' => implode("\n", $buildOutput),
             'output' => implode("\n", $output)
         ]);
         break;

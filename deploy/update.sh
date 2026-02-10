@@ -103,14 +103,34 @@ fi
 # 重新构建前端
 log_step "重新构建前端..."
 cd "$INSTALL_DIR/backend/frontend"
-npm install
-npm run build
 
-# 复制构建产物
-if [ -d "dist" ]; then
-    mkdir -p "$INSTALL_DIR/public/admin"
-    cp -r dist/* "$INSTALL_DIR/public/admin/"
+# 检查 node 是否可用
+if command -v node &> /dev/null && command -v npm &> /dev/null; then
+    log_info "Node.js 版本: $(node -v)"
+    log_info "npm 版本: $(npm -v)"
+    
+    # 安装依赖
+    if [ ! -d "node_modules" ]; then
+        log_info "安装依赖..."
+        npm install
+    fi
+    
+    # 编译
+    log_info "编译前端..."
+    npm run build
+    
+    # 编译产物会自动输出到 ../../dist (即 $INSTALL_DIR/dist)
+    if [ -d "$INSTALL_DIR/dist" ]; then
+        log_info "前端编译成功！"
+    else
+        log_error "前端编译失败，dist 目录不存在"
+    fi
+else
+    log_error "未检测到 Node.js 环境，跳过前端编译"
+    log_info "请手动安装 Node.js 后执行: cd backend/frontend && npm install && npm run build"
 fi
+
+cd "$INSTALL_DIR"
 
 # 设置权限
 log_step "设置文件权限..."
