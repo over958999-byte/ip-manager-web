@@ -124,4 +124,7 @@ const api = {
   getSystemInfo: () => request.get('?action=system_info')
 }
 
+// 导出 getAntibotStats 供 Dashboard 使用
+export const getAntibotStats = () => request.get('?action=get_antibot_stats')
+
 export default api
