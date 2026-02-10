@@ -3,18 +3,31 @@
  * 数据库连接和操作类
  */
 
+// 加载数据库配置
+$configFile = __DIR__ . '/db_config.php';
+if (file_exists($configFile)) {
+    require_once $configFile;
+}
+
 class Database {
     private static $instance = null;
     private $pdo;
     
-    // 数据库配置
-    private $host = '127.0.0.1';
-    private $dbname = 'ip_manager';
-    private $username = 'root';
-    private $password = '';
-    private $charset = 'utf8mb4';
+    // 数据库配置 - 优先使用 db_config.php 中的配置
+    private $host;
+    private $dbname;
+    private $username;
+    private $password;
+    private $charset;
     
     private function __construct() {
+        // 使用配置文件的值，如果没有则使用默认值
+        $this->host = defined('DB_HOST') ? DB_HOST : '127.0.0.1';
+        $this->dbname = defined('DB_NAME') ? DB_NAME : 'ip_manager';
+        $this->username = defined('DB_USER') ? DB_USER : 'root';
+        $this->password = defined('DB_PASS') ? DB_PASS : '';
+        $this->charset = defined('DB_CHARSET') ? DB_CHARSET : 'utf8mb4';
+        
         try {
             $dsn = "mysql:host={$this->host};dbname={$this->dbname};charset={$this->charset}";
             $options = [
