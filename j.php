@@ -175,7 +175,7 @@ $rule = null;
 $ruleType = null;
 $matchKey = null;
 
-// 1. 检查是否是短码跳转 (/j/CODE 或 ?c=CODE)
+// 1. 检查是否是短码跳转 (/j/CODE 或 /CODE 或 ?code=CODE)
 $requestUri = $_SERVER['REQUEST_URI'] ?? '';
 $code = null;
 
@@ -183,7 +183,14 @@ $code = null;
 if (preg_match('#^/j/([a-zA-Z0-9_-]+)#', $requestUri, $matches)) {
     $code = $matches[1];
 }
-// 支持 ?c=CODE 格式
+// 支持直接 /CODE 格式 (4-10位字母数字)
+elseif (preg_match('#^/([a-zA-Z0-9]{4,10})(?:\?|$)#', $requestUri, $matches)) {
+    $code = $matches[1];
+}
+// 支持 ?code=CODE 或 ?c=CODE 格式
+elseif (isset($_GET['code'])) {
+    $code = $_GET['code'];
+}
 elseif (isset($_GET['c'])) {
     $code = $_GET['c'];
 }
