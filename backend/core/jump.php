@@ -113,8 +113,10 @@ class JumpService {
             return ['success' => false, 'message' => '域名不能为空'];
         }
         
-        // 自动补全 HTTPS 协议
-        if (!preg_match('/^https?:\/\//i', $domain)) {
+        // 强制使用 HTTPS 协议
+        if (preg_match('/^http:\/\//i', $domain)) {
+            $domain = preg_replace('/^http:\/\//i', 'https://', $domain);
+        } elseif (!preg_match('/^https:\/\//i', $domain)) {
             $domain = 'https://' . $domain;
         }
         
