@@ -220,78 +220,163 @@
         </el-row>
       </el-tab-pane>
 
-      <!-- Cloudflare 标签页 -->
-      <el-tab-pane label="Cloudflare" name="cloudflare">
+      <!-- 域名购买标签页 (Namemart) -->
+      <el-tab-pane label="域名购买" name="namemart">
         <div class="tab-header">
-          <span class="tab-title">Cloudflare 域名管理</span>
+          <span class="tab-title">Namemart 域名批量购买</span>
           <div class="tab-actions">
-            <el-button size="small" @click="showCfConfigDialog">
+            <el-button size="small" @click="showNmConfigDialog">
               <el-icon><Setting /></el-icon> API配置
             </el-button>
-            <el-button type="primary" size="small" @click="showCfAddDialog" :disabled="!cfConfigured">
-              <el-icon><Plus /></el-icon> 添加域名
-            </el-button>
-            <el-button size="small" @click="showCfBatchDialog" :disabled="!cfConfigured">
-              <el-icon><Upload /></el-icon> 批量添加
+            <el-button size="small" @click="showNmContactDialog" :disabled="!nmConfigured">
+              <el-icon><User /></el-icon> 联系人
             </el-button>
           </div>
         </div>
         
         <el-row :gutter="20">
           <el-col :span="16">
-            <el-alert v-if="!cfConfigured" type="warning" :closable="false" style="margin-bottom: 16px;">
-              请先配置 Cloudflare API Token 和 Account ID
+            <el-alert v-if="!nmConfigured" type="warning" :closable="false" style="margin-bottom: 16px;">
+              请先配置 Namemart API (Member ID 和 API Key)
             </el-alert>
             
-            <el-table :data="cfZones" v-loading="loading.cf" stripe style="width: 100%">
-              <el-table-column prop="name" label="域名" min-width="180" />
-              <el-table-column label="状态" width="100">
-                <template #default="{ row }">
-                  <el-tag :type="row.status === 'active' ? 'success' : 'warning'" size="small">
-                    {{ row.status === 'active' ? '活跃' : row.status }}
-                  </el-tag>
-                </template>
-              </el-table-column>
-              <el-table-column label="NS服务器" min-width="200">
-                <template #default="{ row }">
-                  <div v-if="row.name_servers" style="font-size: 12px; color: #909399;">
-                    {{ row.name_servers.join(', ') }}
+            <!-- 域名查询区域 -->
+            <el-card shadow="never" style="margin-bottom: 16px;">
+              <template #header>
+                <div style="display: flex; justify-content: space-between; align-items: center;">
+                  <span>批量查询域名</span>
+                  <el-button type="primary" size="small" @click="nmCheckDomains" :loading="loading.nmCheck" :disabled="!nmConfigured">
+                    查询可注册状态
+                  </el-button>
+                </div>
+              </template>
+              <el-input 
+                v-model="nmQueryText" 
+                type="textarea" 
+                :rows="5" 
+                placeholder="输入要查询的域名，每行一个（最多50个）&#10;例如：&#10;example.com&#10;test.net&#10;demo.org"
+              />
+            </el-card>
+            
+            <!-- 查询结果表格 -->
+            <el-card shadow="never" v-if="nmCheckResults.length > 0">
+              <template #header>
+                <div style="display: flex; justify-content: space-between; align-items: center;">
+                  <span>查询结果 (可注册: {{ nmAvailableCount }} / {{ nmCheckResults.length }})</span>
+                  <div>
+                    <el-checkbox v-model="nmAddToCloudflare" :disabled="!cfConfigured" style="margin-right: 16px;">
+                      购买后自动添加到 Cloudflare
+                    </el-checkbox>
+                    <el-button 
+                      type="success" 
+                      size="small" 
+                      @click="nmRegisterSelected" 
+                      :loading="loading.nmRegister"
+                      :disabled="nmSelectedDomains.length === 0"
+                    >
+                      注册选中 ({{ nmSelectedDomains.length }})
+                    </el-button>
                   </div>
-                </template>
-              </el-table-column>
-              <el-table-column label="操作" width="150" align="center">
-                <template #default="{ row }">
-                  <el-button link type="primary" size="small" @click="cfEnableHttps(row.name)">开启HTTPS</el-button>
-                  <el-button link type="success" size="small" @click="cfAddToPool(row.name)">加入域名池</el-button>
-                </template>
-              </el-table-column>
-            </el-table>
+                </div>
+              </template>
+              
+              <el-table 
+                :data="nmCheckResults" 
+                @selection-change="handleNmSelectionChange"
+                style="width: 100%"
+                max-height="400"
+              >
+                <el-table-column type="selection" width="50" :selectable="row => row.available" />
+                <el-table-column prop="domain" label="域名" min-width="200" />
+                <el-table-column label="状态" width="100">
+                  <template #default="{ row }">
+                    <el-tag :type="row.available ? 'success' : (row.status === 1 ? 'info' : 'danger')" size="small">
+                      {{ row.status_text }}
+                    </el-tag>
+                  </template>
+                </el-table-column>
+                <el-table-column label="价格" width="100">
+                  <template #default="{ row }">
+                    <span v-if="row.price" :class="{ 'premium-price': row.is_premium }">
+                      {{ row.price_symbol }}{{ row.price }}
+                      <el-tag v-if="row.is_premium" type="warning" size="small">溢价</el-tag>
+                    </span>
+                    <span v-else>-</span>
+                  </template>
+                </el-table-column>
+                <el-table-column label="最低年限" width="80" align="center">
+                  <template #default="{ row }">
+                    {{ row.min_period || 1 }}年
+                  </template>
+                </el-table-column>
+              </el-table>
+            </el-card>
+            
+            <!-- 注册结果 -->
+            <el-card shadow="never" v-if="nmRegisterResults.length > 0" style="margin-top: 16px;">
+              <template #header>注册结果</template>
+              <div style="max-height: 200px; overflow-y: auto;">
+                <div v-for="(result, index) in nmRegisterResults" :key="index" style="margin-bottom: 8px; display: flex; align-items: center; gap: 8px;">
+                  <el-tag :type="result.success ? 'success' : 'danger'" size="small">
+                    {{ result.domain }}
+                  </el-tag>
+                  <span :style="{ color: result.success ? '#67c23a' : '#f56c6c', fontSize: '12px' }">
+                    {{ result.message }}
+                  </span>
+                  <span v-if="result.cloudflare" style="font-size: 12px; color: #909399;">[+Cloudflare]</span>
+                </div>
+              </div>
+            </el-card>
           </el-col>
           
           <el-col :span="8">
             <el-card shadow="never">
-              <template #header>Cloudflare 配置状态</template>
-              <div class="cf-status">
-                <p><strong>状态：</strong>
-                  <el-tag :type="cfConfigured ? 'success' : 'danger'" size="small">
+              <template #header>配置状态</template>
+              <div class="nm-status">
+                <p><strong>Namemart：</strong>
+                  <el-tag :type="nmConfigured ? 'success' : 'danger'" size="small">
+                    {{ nmConfigured ? '已配置' : '未配置' }}
+                  </el-tag>
+                </p>
+                <p v-if="nmConfig.member_id"><strong>Member ID：</strong>{{ nmConfig.member_id }}</p>
+                <p v-if="nmConfig.contact_id"><strong>联系人ID：</strong>{{ nmConfig.contact_id }}</p>
+                <el-divider />
+                <p><strong>Cloudflare：</strong>
+                  <el-tag :type="cfConfigured ? 'success' : 'info'" size="small">
                     {{ cfConfigured ? '已配置' : '未配置' }}
                   </el-tag>
                 </p>
-                <p v-if="cfConfig.api_token"><strong>Token：</strong>{{ cfConfig.api_token }}</p>
-                <p v-if="cfConfig.account_id"><strong>Account ID：</strong>{{ cfConfig.account_id }}</p>
-                <p v-if="cfConfig.default_server_ip"><strong>默认服务器IP：</strong>{{ cfConfig.default_server_ip }}</p>
+                <p style="font-size: 12px; color: #909399;">
+                  {{ cfConfigured ? '购买时可自动添加到 Cloudflare' : '配置后可自动添加域名到 Cloudflare' }}
+                </p>
               </div>
             </el-card>
             <el-card shadow="never" style="margin-top: 16px;">
               <template #header>功能说明</template>
               <div class="tips">
-                <p>• 一键添加域名到 Cloudflare</p>
-                <p>• 自动添加 A 记录（@ 和 www）</p>
-                <p>• 自动开启 CDN 代理</p>
-                <p>• 自动开启 HTTPS（Full 模式）</p>
-                <p>• 自动开启始终使用 HTTPS</p>
-                <p>• 可选添加到本地域名池</p>
+                <p>• 批量查询域名注册状态</p>
+                <p>• 显示域名价格（含溢价）</p>
+                <p>• 勾选后批量注册购买</p>
+                <p>• 可选自动添加到 Cloudflare</p>
+                <p>• 自动设置 Cloudflare NS</p>
+                <p>• 支持创建和管理联系人</p>
               </div>
+            </el-card>
+            <el-card shadow="never" style="margin-top: 16px;">
+              <template #header>注册设置</template>
+              <el-form label-width="80px" size="small">
+                <el-form-item label="注册年限">
+                  <el-select v-model="nmRegisterYears" style="width: 100%;">
+                    <el-option v-for="y in 10" :key="y" :label="`${y}年`" :value="y" />
+                  </el-select>
+                </el-form-item>
+                <el-form-item label="DNS1">
+                  <el-input v-model="nmConfig.default_dns1" placeholder="ns1.domainnamedns.com" />
+                </el-form-item>
+                <el-form-item label="DNS2">
+                  <el-input v-model="nmConfig.default_dns2" placeholder="ns2.domainnamedns.com" />
+                </el-form-item>
+              </el-form>
             </el-card>
           </el-col>
         </el-row>
@@ -438,6 +523,137 @@
         <el-button type="primary" @click="submitCfBatchAdd" :loading="submitting">批量添加</el-button>
       </template>
     </el-dialog>
+
+    <!-- Namemart 配置对话框 -->
+    <el-dialog v-model="nmConfigDialog.visible" title="Namemart API 配置" width="550px">
+      <el-form :model="nmConfigDialog.form" label-width="120px">
+        <el-form-item label="Member ID" required>
+          <el-input v-model="nmConfigDialog.form.member_id" placeholder="Namemart 会员ID" />
+        </el-form-item>
+        <el-form-item label="API Key" required>
+          <el-input v-model="nmConfigDialog.form.api_key" placeholder="Namemart API Key" show-password />
+        </el-form-item>
+        <el-form-item label="联系人 ID">
+          <el-input v-model="nmConfigDialog.form.contact_id" placeholder="注册域名使用的联系人ID（可稍后创建）" />
+        </el-form-item>
+        <el-form-item label="默认 DNS1">
+          <el-input v-model="nmConfigDialog.form.default_dns1" placeholder="ns1.domainnamedns.com" />
+        </el-form-item>
+        <el-form-item label="默认 DNS2">
+          <el-input v-model="nmConfigDialog.form.default_dns2" placeholder="ns2.domainnamedns.com" />
+        </el-form-item>
+      </el-form>
+      <div class="tips" style="margin-top: 16px; padding: 12px; background: #f5f7fa; border-radius: 4px;">
+        <p style="margin: 0 0 8px;"><strong>获取方式：</strong></p>
+        <p style="margin: 0; font-size: 12px; color: #909399;">1. 登录 namemart.com</p>
+        <p style="margin: 0; font-size: 12px; color: #909399;">2. 进入会员中心 → API管理</p>
+        <p style="margin: 0; font-size: 12px; color: #909399;">3. 获取 Member ID 和 API Key</p>
+      </div>
+      <template #footer>
+        <el-button @click="nmConfigDialog.visible = false">取消</el-button>
+        <el-button type="primary" @click="saveNmConfig" :loading="submitting">保存配置</el-button>
+      </template>
+    </el-dialog>
+
+    <!-- Namemart 联系人对话框 -->
+    <el-dialog v-model="nmContactDialog.visible" :title="nmContactDialog.isCreate ? '创建联系人' : '联系人信息'" width="650px">
+      <el-form :model="nmContactDialog.form" label-width="100px" size="small">
+        <el-row :gutter="16">
+          <el-col :span="12">
+            <el-form-item label="模板名称">
+              <el-input v-model="nmContactDialog.form.template_name" placeholder="DefaultTemplate" />
+            </el-form-item>
+          </el-col>
+          <el-col :span="12">
+            <el-form-item label="类型">
+              <el-select v-model="nmContactDialog.form.contact_type" style="width: 100%;">
+                <el-option :value="0" label="个人" />
+                <el-option :value="1" label="组织" />
+              </el-select>
+            </el-form-item>
+          </el-col>
+        </el-row>
+        <el-row :gutter="16">
+          <el-col :span="12">
+            <el-form-item label="名字" required>
+              <el-input v-model="nmContactDialog.form.first_name" placeholder="First Name (英文)" />
+            </el-form-item>
+          </el-col>
+          <el-col :span="12">
+            <el-form-item label="姓氏" required>
+              <el-input v-model="nmContactDialog.form.last_name" placeholder="Last Name (英文)" />
+            </el-form-item>
+          </el-col>
+        </el-row>
+        <el-form-item v-if="nmContactDialog.form.contact_type === 1" label="组织名称" required>
+          <el-input v-model="nmContactDialog.form.org" placeholder="Organization Name" />
+        </el-form-item>
+        <el-row :gutter="16">
+          <el-col :span="8">
+            <el-form-item label="国家" required>
+              <el-select v-model="nmContactDialog.form.country_code" style="width: 100%;">
+                <el-option value="SG" label="新加坡 (SG)" />
+                <el-option value="US" label="美国 (US)" />
+                <el-option value="HK" label="香港 (HK)" />
+                <el-option value="JP" label="日本 (JP)" />
+                <el-option value="CN" label="中国 (CN)" />
+              </el-select>
+            </el-form-item>
+          </el-col>
+          <el-col :span="8">
+            <el-form-item label="省份" required>
+              <el-input v-model="nmContactDialog.form.province" placeholder="Province/State" />
+            </el-form-item>
+          </el-col>
+          <el-col :span="8">
+            <el-form-item label="城市" required>
+              <el-input v-model="nmContactDialog.form.city" placeholder="City" />
+            </el-form-item>
+          </el-col>
+        </el-row>
+        <el-form-item label="街道地址" required>
+          <el-input v-model="nmContactDialog.form.street" placeholder="Street Address (4-64字符)" />
+        </el-form-item>
+        <el-row :gutter="16">
+          <el-col :span="8">
+            <el-form-item label="邮编" required>
+              <el-input v-model="nmContactDialog.form.post_code" placeholder="Post Code" />
+            </el-form-item>
+          </el-col>
+          <el-col :span="8">
+            <el-form-item label="电话区号" required>
+              <el-input v-model="nmContactDialog.form.tel_area_code" placeholder="65" />
+            </el-form-item>
+          </el-col>
+          <el-col :span="8">
+            <el-form-item label="电话" required>
+              <el-input v-model="nmContactDialog.form.tel" placeholder="+6512345678" />
+            </el-form-item>
+          </el-col>
+        </el-row>
+        <el-row :gutter="16">
+          <el-col :span="8">
+            <el-form-item label="传真区号">
+              <el-input v-model="nmContactDialog.form.fax_area_code" placeholder="65" />
+            </el-form-item>
+          </el-col>
+          <el-col :span="8">
+            <el-form-item label="传真">
+              <el-input v-model="nmContactDialog.form.fax" placeholder="+6512345678" />
+            </el-form-item>
+          </el-col>
+          <el-col :span="8">
+            <el-form-item label="邮箱" required>
+              <el-input v-model="nmContactDialog.form.email" placeholder="email@example.com" />
+            </el-form-item>
+          </el-col>
+        </el-row>
+      </el-form>
+      <template #footer>
+        <el-button @click="nmContactDialog.visible = false">取消</el-button>
+        <el-button v-if="nmContactDialog.isCreate" type="primary" @click="saveNmContact" :loading="submitting">创建联系人</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -447,7 +663,7 @@ import { ElMessage } from 'element-plus'
 import api, { 
   getDomains as fetchDomains, 
   addDomain as apiAddDomain, 
-  updateDomain as apiUpdateDomain, 
+  updateDomain as apiUpdateDomain,
   deleteDomain as apiDeleteDomain,
   checkAllDomains,
   cfGetConfig,
@@ -458,12 +674,18 @@ import api, {
   cfEnableHttps as apiCfEnableHttps,
   domainSafetyCheck,
   domainSafetyCheckAll,
-  domainSafetyStats
+  domainSafetyStats,
+  nmGetConfig,
+  nmSaveConfig,
+  nmCheckDomains as apiNmCheckDomains,
+  nmRegisterDomains,
+  nmCreateContact,
+  nmGetContactInfo
 } from '../api'
-import { Plus, Delete, Refresh } from '@element-plus/icons-vue'
+import { Plus, Delete, Refresh, Setting, User, Upload } from '@element-plus/icons-vue'
 
 const activeTab = ref('ip')
-const loading = reactive({ ip: false, domain: false, checking: false, cf: false, safety: false })
+const loading = reactive({ ip: false, domain: false, checking: false, cf: false, safety: false, nmCheck: false, nmRegister: false })
 const submitting = ref(false)
 
 // ==================== IP池相关 ====================
@@ -907,6 +1129,222 @@ const saveCfConfig = async () => {
   }
 }
 
+// ==================== Namemart 相关 ====================
+const nmConfig = reactive({
+  member_id: '',
+  api_key: '',
+  contact_id: '',
+  default_dns1: 'ns1.domainnamedns.com',
+  default_dns2: 'ns2.domainnamedns.com'
+})
+const nmConfigured = computed(() => nmConfig.member_id && nmConfig.api_key)
+const nmQueryText = ref('')
+const nmCheckResults = ref([])
+const nmSelectedDomains = ref([])
+const nmRegisterResults = ref([])
+const nmRegisterYears = ref(1)
+const nmAddToCloudflare = ref(false)
+
+const nmAvailableCount = computed(() => nmCheckResults.value.filter(r => r.available).length)
+
+const nmConfigDialog = reactive({
+  visible: false,
+  form: { member_id: '', api_key: '', contact_id: '', default_dns1: '', default_dns2: '' }
+})
+
+const nmContactDialog = reactive({
+  visible: false,
+  isCreate: false,
+  form: {
+    template_name: 'DefaultTemplate',
+    contact_type: 0,
+    first_name: '',
+    last_name: '',
+    org: '',
+    country_code: 'SG',
+    province: '',
+    city: '',
+    street: '',
+    post_code: '',
+    tel_area_code: '65',
+    tel: '',
+    fax_area_code: '65',
+    fax: '',
+    email: ''
+  }
+})
+
+const loadNmConfig = async () => {
+  try {
+    const res = await nmGetConfig()
+    if (res.success && res.config) {
+      Object.assign(nmConfig, res.config)
+    }
+  } catch {}
+}
+
+const showNmConfigDialog = () => {
+  nmConfigDialog.form = { ...nmConfig }
+  nmConfigDialog.visible = true
+}
+
+const saveNmConfig = async () => {
+  const { member_id, api_key } = nmConfigDialog.form
+  if (!member_id || !api_key) {
+    ElMessage.warning('请填写 Member ID 和 API Key')
+    return
+  }
+  submitting.value = true
+  try {
+    const res = await nmSaveConfig(nmConfigDialog.form)
+    if (res.success) {
+      Object.assign(nmConfig, nmConfigDialog.form)
+      nmConfigDialog.visible = false
+      ElMessage.success('配置已保存')
+    } else {
+      ElMessage.error(res.message || '保存失败')
+    }
+  } finally {
+    submitting.value = false
+  }
+}
+
+const showNmContactDialog = async () => {
+  // 如果有联系人 ID，尝试获取联系人信息
+  if (nmConfig.contact_id) {
+    try {
+      const res = await nmGetContactInfo(nmConfig.contact_id)
+      if (res.code === 1000 && res.data) {
+        nmContactDialog.form = {
+          template_name: res.data.template_name || 'DefaultTemplate',
+          contact_type: res.data.contact_type || 0,
+          first_name: res.data.first_name || '',
+          last_name: res.data.last_name || '',
+          org: res.data.org || '',
+          country_code: 'SG',
+          province: '',
+          city: '',
+          street: '',
+          post_code: '',
+          tel_area_code: res.data.tel_area_code || '65',
+          tel: res.data.tel || '',
+          fax_area_code: '65',
+          fax: '',
+          email: res.data.email || ''
+        }
+        nmContactDialog.isCreate = false
+        nmContactDialog.visible = true
+        return
+      }
+    } catch {}
+  }
+  // 没有联系人或获取失败，显示创建表单
+  nmContactDialog.form = {
+    template_name: 'DefaultTemplate',
+    contact_type: 0,
+    first_name: '',
+    last_name: '',
+    org: '',
+    country_code: 'SG',
+    province: 'Singapore',
+    city: 'Singapore',
+    street: '',
+    post_code: '',
+    tel_area_code: '65',
+    tel: '',
+    fax_area_code: '65',
+    fax: '',
+    email: ''
+  }
+  nmContactDialog.isCreate = true
+  nmContactDialog.visible = true
+}
+
+const saveNmContact = async () => {
+  const form = nmContactDialog.form
+  const required = ['first_name', 'last_name', 'province', 'city', 'street', 'post_code', 'tel', 'email']
+  for (const field of required) {
+    if (!form[field]) {
+      ElMessage.warning(`请填写 ${field}`)
+      return
+    }
+  }
+  submitting.value = true
+  try {
+    const res = await nmCreateContact(form)
+    if (res.success) {
+      nmConfig.contact_id = res.contact_id
+      ElMessage.success(`联系人创建成功，ID: ${res.contact_id}`)
+      nmContactDialog.visible = false
+    } else {
+      ElMessage.error(res.message || '创建失败')
+    }
+  } finally {
+    submitting.value = false
+  }
+}
+
+const nmCheckDomains = async () => {
+  if (!nmQueryText.value.trim()) {
+    ElMessage.warning('请输入要查询的域名')
+    return
+  }
+  loading.nmCheck = true
+  nmCheckResults.value = []
+  nmSelectedDomains.value = []
+  try {
+    const res = await apiNmCheckDomains(nmQueryText.value)
+    if (res.success) {
+      nmCheckResults.value = res.results || []
+      ElMessage.success(`查询完成：${res.available} 个可注册 / ${res.total} 个`)
+    } else {
+      ElMessage.error(res.message || '查询失败')
+    }
+  } finally {
+    loading.nmCheck = false
+  }
+}
+
+const handleNmSelectionChange = (selection) => {
+  nmSelectedDomains.value = selection.map(item => item.domain)
+}
+
+const nmRegisterSelected = async () => {
+  if (nmSelectedDomains.value.length === 0) {
+    ElMessage.warning('请选择要注册的域名')
+    return
+  }
+  if (!nmConfig.contact_id) {
+    ElMessage.warning('请先创建联系人')
+    showNmContactDialog()
+    return
+  }
+  
+  loading.nmRegister = true
+  nmRegisterResults.value = []
+  try {
+    const res = await nmRegisterDomains({
+      domains: nmSelectedDomains.value,
+      years: nmRegisterYears.value,
+      add_to_cloudflare: nmAddToCloudflare.value,
+      dns1: nmConfig.default_dns1,
+      dns2: nmConfig.default_dns2
+    })
+    if (res.success) {
+      nmRegisterResults.value = res.results || []
+      const summary = res.summary || {}
+      ElMessage.success(`注册完成：${summary.success || 0} 成功，${summary.failed || 0} 失败`)
+      // 清除已注册的域名
+      nmCheckResults.value = nmCheckResults.value.filter(r => !nmSelectedDomains.value.includes(r.domain))
+      nmSelectedDomains.value = []
+    } else {
+      ElMessage.error(res.message || '注册失败')
+    }
+  } finally {
+    loading.nmRegister = false
+  }
+}
+
 const showCfAddDialog = () => {
   cfAddDialog.form = { domain: '', server_ip: '', enable_https: true, add_to_pool: true }
   cfAddDialog.visible = true
@@ -1018,6 +1456,7 @@ onMounted(() => {
   loadIpPool()
   loadDomains()
   loadCfConfig()
+  loadNmConfig()
 })
 </script>
 
@@ -1078,5 +1517,20 @@ onMounted(() => {
 .cf-status p {
   margin: 0;
   word-break: break-all;
+}
+
+.nm-status {
+  font-size: 13px;
+  line-height: 2;
+}
+
+.nm-status p {
+  margin: 0;
+  word-break: break-all;
+}
+
+.premium-price {
+  color: #e6a23c;
+  font-weight: bold;
 }
 </style>

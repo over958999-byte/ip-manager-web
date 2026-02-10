@@ -164,6 +164,17 @@ export const cfAddDomain = (data) => request.post('?action=cf_add_domain', data)
 export const cfBatchAddDomains = (data) => request.post('?action=cf_batch_add_domains', data)
 export const cfEnableHttps = (domain) => request.post('?action=cf_enable_https', { domain })
 
+// Namemart 域名购买 API 导出
+export const nmGetConfig = () => request.get('?action=nm_get_config')
+export const nmSaveConfig = (data) => request.post('?action=nm_save_config', data)
+export const nmCheckDomains = (domains) => request.post('?action=nm_check_domains', { domains })
+export const nmRegisterDomains = (data) => request.post('?action=nm_register_domains', data)
+export const nmGetTaskStatus = (taskNo) => request.post('?action=nm_get_task_status', { task_no: taskNo })
+export const nmGetDomainInfo = (domain) => request.post('?action=nm_get_domain_info', { domain })
+export const nmUpdateDns = (domain, dns1, dns2) => request.post('?action=nm_update_dns', { domain, dns1, dns2 })
+export const nmCreateContact = (data) => request.post('?action=nm_create_contact', data)
+export const nmGetContactInfo = (contactId) => request.post('?action=nm_get_contact_info', { contact_id: contactId })
+
 // 域名安全检测 API 导出
 export const domainSafetyCheck = (domain, domainId) => request.post('?action=domain_safety_check', { domain, domain_id: domainId })
 export const domainSafetyCheckAll = () => request.post('?action=domain_safety_check_all')

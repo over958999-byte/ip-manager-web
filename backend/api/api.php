@@ -1752,6 +1752,383 @@ switch ($action) {
         echo json_encode(['success' => true, 'message' => '域名已从管理列表中移除']);
         break;
 
+    // ==================== Namemart 域名购买 API ====================
+    
+    case 'nm_get_config':
+        // 获取 Namemart 配置
+        $nmConfig = $db->getConfig('namemart', []);
+        echo json_encode([
+            'success' => true,
+            'config' => [
+                'member_id' => $nmConfig['member_id'] ?? '',
+                'api_key' => !empty($nmConfig['api_key']) ? '********' . substr($nmConfig['api_key'], -4) : '',
+                'contact_id' => $nmConfig['contact_id'] ?? '',
+                'default_dns1' => $nmConfig['default_dns1'] ?? 'ns1.domainnamedns.com',
+                'default_dns2' => $nmConfig['default_dns2'] ?? 'ns2.domainnamedns.com',
+                'configured' => !empty($nmConfig['member_id']) && !empty($nmConfig['api_key'])
+            ]
+        ]);
+        break;
+        
+    case 'nm_save_config':
+        // 保存 Namemart 配置
+        if (!checkLogin()) {
+            echo json_encode(['success' => false, 'message' => '请先登录']);
+            exit;
+        }
+        
+        $memberId = trim($input['member_id'] ?? '');
+        $apiKey = trim($input['api_key'] ?? '');
+        $contactId = trim($input['contact_id'] ?? '');
+        $defaultDns1 = trim($input['default_dns1'] ?? 'ns1.domainnamedns.com');
+        $defaultDns2 = trim($input['default_dns2'] ?? 'ns2.domainnamedns.com');
+        
+        if (empty($memberId) || empty($apiKey)) {
+            echo json_encode(['success' => false, 'message' => 'Member ID 和 API Key 不能为空']);
+            break;
+        }
+        
+        // 如果 API Key 是掩码格式，保留原值
+        if (strpos($apiKey, '********') === 0) {
+            $existingConfig = $db->getConfig('namemart', []);
+            if (!empty($existingConfig['api_key'])) {
+                $apiKey = $existingConfig['api_key'];
+            } else {
+                echo json_encode(['success' => false, 'message' => '请输入完整的 API Key']);
+                break;
+            }
+        }
+        
+        // 验证配置
+        require_once __DIR__ . '/../core/namemart.php';
+        $nm = new NamemartService($memberId, $apiKey);
+        $verify = $nm->verifyConfig();
+        
+        if (!$verify['success']) {
+            echo json_encode(['success' => false, 'message' => 'API 验证失败: ' . $verify['message']]);
+            break;
+        }
+        
+        $db->setConfig('namemart', [
+            'member_id' => $memberId,
+            'api_key' => $apiKey,
+            'contact_id' => $contactId,
+            'default_dns1' => $defaultDns1,
+            'default_dns2' => $defaultDns2
+        ]);
+        
+        echo json_encode(['success' => true, 'message' => 'Namemart 配置已保存']);
+        break;
+        
+    case 'nm_check_domains':
+        // 批量查询域名可注册状态
+        if (!checkLogin()) {
+            echo json_encode(['success' => false, 'message' => '请先登录']);
+            exit;
+        }
+        
+        $nmConfig = $db->getConfig('namemart', []);
+        if (empty($nmConfig['api_key'])) {
+            echo json_encode(['success' => false, 'message' => '请先配置 Namemart API']);
+            break;
+        }
+        
+        $domainsText = $input['domains'] ?? '';
+        $domains = preg_split('/[\s,;]+/', trim($domainsText), -1, PREG_SPLIT_NO_EMPTY);
+        
+        if (empty($domains)) {
+            echo json_encode(['success' => false, 'message' => '域名列表不能为空']);
+            break;
+        }
+        
+        // 限制每次最多查询 50 个域名
+        if (count($domains) > 50) {
+            $domains = array_slice($domains, 0, 50);
+        }
+        
+        require_once __DIR__ . '/../core/namemart.php';
+        $nm = new NamemartService($nmConfig['member_id'], $nmConfig['api_key']);
+        
+        $results = $nm->checkDomains($domains, true);
+        
+        echo json_encode([
+            'success' => true,
+            'results' => $results,
+            'total' => count($results),
+            'available' => count(array_filter($results, fn($r) => $r['available']))
+        ]);
+        break;
+        
+    case 'nm_register_domains':
+        // 批量注册域名
+        if (!checkLogin()) {
+            echo json_encode(['success' => false, 'message' => '请先登录']);
+            exit;
+        }
+        
+        $nmConfig = $db->getConfig('namemart', []);
+        if (empty($nmConfig['api_key'])) {
+            echo json_encode(['success' => false, 'message' => '请先配置 Namemart API']);
+            break;
+        }
+        
+        if (empty($nmConfig['contact_id'])) {
+            echo json_encode(['success' => false, 'message' => '请先配置联系人 ID']);
+            break;
+        }
+        
+        $domains = $input['domains'] ?? [];
+        $years = intval($input['years'] ?? 1);
+        $addToCloudflare = $input['add_to_cloudflare'] ?? false;
+        $dns1 = $input['dns1'] ?? $nmConfig['default_dns1'];
+        $dns2 = $input['dns2'] ?? $nmConfig['default_dns2'];
+        
+        if (empty($domains)) {
+            echo json_encode(['success' => false, 'message' => '域名列表不能为空']);
+            break;
+        }
+        
+        if ($years < 1 || $years > 10) {
+            $years = 1;
+        }
+        
+        require_once __DIR__ . '/../core/namemart.php';
+        $nm = new NamemartService($nmConfig['member_id'], $nmConfig['api_key']);
+        
+        // 如果需要添加到 Cloudflare，先获取 Cloudflare NS
+        $cfNameservers = null;
+        if ($addToCloudflare) {
+            $cfConfig = $db->getConfig('cloudflare', []);
+            if (!empty($cfConfig['api_token']) && !empty($cfConfig['account_id'])) {
+                require_once __DIR__ . '/../core/cloudflare.php';
+                $cf = new CloudflareService($cfConfig['api_token'], $cfConfig['account_id']);
+            } else {
+                $addToCloudflare = false;
+            }
+        }
+        
+        $results = [];
+        $successCount = 0;
+        $failCount = 0;
+        
+        foreach ($domains as $domain) {
+            $domain = strtolower(trim($domain));
+            if (empty($domain)) continue;
+            
+            $useDns1 = $dns1;
+            $useDns2 = $dns2;
+            
+            // 如果需要添加到 Cloudflare，先添加域名获取 NS
+            if ($addToCloudflare && isset($cf)) {
+                $cfResult = $cf->addZone($domain);
+                if ($cfResult['success'] && !empty($cfResult['name_servers'])) {
+                    $useDns1 = $cfResult['name_servers'][0] ?? $dns1;
+                    $useDns2 = $cfResult['name_servers'][1] ?? $dns2;
+                    $cfNameservers = $cfResult['name_servers'];
+                }
+            }
+            
+            // 注册域名
+            $result = $nm->registerDomain($domain, $years, $nmConfig['contact_id'], $useDns1, $useDns2);
+            
+            if ($result['success']) {
+                $successCount++;
+                $results[] = [
+                    'domain' => $domain,
+                    'success' => true,
+                    'message' => $result['async'] ? '注册任务已提交（异步）' : '注册成功',
+                    'task_no' => $result['task_no'] ?? null,
+                    'nameservers' => [$useDns1, $useDns2],
+                    'cloudflare' => $addToCloudflare
+                ];
+            } else {
+                $failCount++;
+                $results[] = [
+                    'domain' => $domain,
+                    'success' => false,
+                    'message' => $result['message']
+                ];
+            }
+            
+            // 避免 API 限流
+            usleep(300000);
+        }
+        
+        echo json_encode([
+            'success' => true,
+            'results' => $results,
+            'summary' => [
+                'total' => count($domains),
+                'success' => $successCount,
+                'failed' => $failCount
+            ]
+        ]);
+        break;
+        
+    case 'nm_get_task_status':
+        // 查询任务状态
+        if (!checkLogin()) {
+            echo json_encode(['success' => false, 'message' => '请先登录']);
+            exit;
+        }
+        
+        $nmConfig = $db->getConfig('namemart', []);
+        if (empty($nmConfig['api_key'])) {
+            echo json_encode(['success' => false, 'message' => '请先配置 Namemart API']);
+            break;
+        }
+        
+        $taskNo = trim($input['task_no'] ?? '');
+        if (empty($taskNo)) {
+            echo json_encode(['success' => false, 'message' => '任务号不能为空']);
+            break;
+        }
+        
+        require_once __DIR__ . '/../core/namemart.php';
+        $nm = new NamemartService($nmConfig['member_id'], $nmConfig['api_key']);
+        
+        $result = $nm->getTaskStatus($taskNo);
+        echo json_encode($result);
+        break;
+        
+    case 'nm_get_domain_info':
+        // 获取域名信息
+        if (!checkLogin()) {
+            echo json_encode(['success' => false, 'message' => '请先登录']);
+            exit;
+        }
+        
+        $nmConfig = $db->getConfig('namemart', []);
+        if (empty($nmConfig['api_key'])) {
+            echo json_encode(['success' => false, 'message' => '请先配置 Namemart API']);
+            break;
+        }
+        
+        $domain = trim($input['domain'] ?? '');
+        if (empty($domain)) {
+            echo json_encode(['success' => false, 'message' => '域名不能为空']);
+            break;
+        }
+        
+        require_once __DIR__ . '/../core/namemart.php';
+        $nm = new NamemartService($nmConfig['member_id'], $nmConfig['api_key']);
+        
+        $result = $nm->getDomainInfo($domain);
+        echo json_encode($result);
+        break;
+        
+    case 'nm_update_dns':
+        // 更新域名 DNS
+        if (!checkLogin()) {
+            echo json_encode(['success' => false, 'message' => '请先登录']);
+            exit;
+        }
+        
+        $nmConfig = $db->getConfig('namemart', []);
+        if (empty($nmConfig['api_key'])) {
+            echo json_encode(['success' => false, 'message' => '请先配置 Namemart API']);
+            break;
+        }
+        
+        $domain = trim($input['domain'] ?? '');
+        $dns1 = trim($input['dns1'] ?? '');
+        $dns2 = trim($input['dns2'] ?? '');
+        
+        if (empty($domain) || empty($dns1) || empty($dns2)) {
+            echo json_encode(['success' => false, 'message' => '域名和 DNS 服务器不能为空']);
+            break;
+        }
+        
+        require_once __DIR__ . '/../core/namemart.php';
+        $nm = new NamemartService($nmConfig['member_id'], $nmConfig['api_key']);
+        
+        $result = $nm->updateDns($domain, $dns1, $dns2);
+        echo json_encode($result);
+        break;
+        
+    case 'nm_create_contact':
+        // 创建联系人
+        if (!checkLogin()) {
+            echo json_encode(['success' => false, 'message' => '请先登录']);
+            exit;
+        }
+        
+        $nmConfig = $db->getConfig('namemart', []);
+        if (empty($nmConfig['api_key'])) {
+            echo json_encode(['success' => false, 'message' => '请先配置 Namemart API']);
+            break;
+        }
+        
+        $contactData = [
+            'template_name' => $input['template_name'] ?? 'DefaultTemplate',
+            'contact_type' => intval($input['contact_type'] ?? 0),
+            'first_name' => $input['first_name'] ?? '',
+            'last_name' => $input['last_name'] ?? '',
+            'country_code' => $input['country_code'] ?? 'SG',
+            'province' => $input['province'] ?? '',
+            'city' => $input['city'] ?? '',
+            'street' => $input['street'] ?? '',
+            'post_code' => $input['post_code'] ?? '',
+            'tel_area_code' => $input['tel_area_code'] ?? '',
+            'tel' => $input['tel'] ?? '',
+            'fax_area_code' => $input['fax_area_code'] ?? '',
+            'fax' => $input['fax'] ?? '',
+            'email' => $input['email'] ?? ''
+        ];
+        
+        if ($contactData['contact_type'] == 1) {
+            $contactData['org'] = $input['org'] ?? '';
+        }
+        
+        // 验证必填字段
+        $required = ['first_name', 'last_name', 'country_code', 'province', 'city', 'street', 'post_code', 'tel_area_code', 'tel', 'email'];
+        foreach ($required as $field) {
+            if (empty($contactData[$field])) {
+                echo json_encode(['success' => false, 'message' => "缺少必填字段: $field"]);
+                break 2;
+            }
+        }
+        
+        require_once __DIR__ . '/../core/namemart.php';
+        $nm = new NamemartService($nmConfig['member_id'], $nmConfig['api_key']);
+        
+        $result = $nm->createContact($contactData);
+        
+        if ($result['success']) {
+            // 自动保存联系人 ID 到配置
+            $nmConfig['contact_id'] = $result['contact_id'];
+            $db->setConfig('namemart', $nmConfig);
+        }
+        
+        echo json_encode($result);
+        break;
+        
+    case 'nm_get_contact_info':
+        // 获取联系人信息
+        if (!checkLogin()) {
+            echo json_encode(['success' => false, 'message' => '请先登录']);
+            exit;
+        }
+        
+        $nmConfig = $db->getConfig('namemart', []);
+        if (empty($nmConfig['api_key'])) {
+            echo json_encode(['success' => false, 'message' => '请先配置 Namemart API']);
+            break;
+        }
+        
+        $contactId = trim($input['contact_id'] ?? $nmConfig['contact_id'] ?? '');
+        if (empty($contactId)) {
+            echo json_encode(['success' => false, 'message' => '联系人 ID 不能为空']);
+            break;
+        }
+        
+        require_once __DIR__ . '/../core/namemart.php';
+        $nm = new NamemartService($nmConfig['member_id'], $nmConfig['api_key']);
+        
+        $result = $nm->getContactInfo($contactId);
+        echo json_encode($result);
+        break;
+
     // ==================== 域名安全检测 API ====================
     
     case 'domain_safety_check':
