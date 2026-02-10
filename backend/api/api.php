@@ -953,6 +953,7 @@ switch ($action) {
             'title' => $input['title'] ?? '',
             'note' => $input['note'] ?? '',
             'group_tag' => $input['group_tag'] ?? ($type === 'ip' ? 'ip' : 'shortlink'),
+            'domain_id' => $input['domain_id'] ?? null,
             'enabled' => $input['enabled'] ?? 1,
             'block_desktop' => $input['block_desktop'] ?? 0,
             'block_ios' => $input['block_ios'] ?? 0,
