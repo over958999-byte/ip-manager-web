@@ -588,7 +588,7 @@
         <el-form-item v-if="nmContactDialog.form.contact_type === 1" label="组织名称" required>
           <el-input v-model="nmContactDialog.form.org" placeholder="Organization Name" />
         </el-form-item>
-        <el-row :gutter="16">
+        <el-row :gutter="16" style="margin-bottom: 12px;">
           <el-col :span="8">
             <el-form-item label="国家" required>
               <el-select v-model="nmContactDialog.form.country_code" style="width: 100%;">
@@ -597,15 +597,25 @@
                 <el-option value="HK" label="香港 (HK)" />
                 <el-option value="JP" label="日本 (JP)" />
                 <el-option value="CN" label="中国 (CN)" />
+                <el-option value="GB" label="英国 (GB)" />
+                <el-option value="AU" label="澳大利亚 (AU)" />
+                <el-option value="CA" label="加拿大 (CA)" />
               </el-select>
             </el-form-item>
           </el-col>
           <el-col :span="8">
+            <el-button type="success" size="small" @click="generateContactInfo" style="margin-top: 2px;">
+              🎲 一键生成该国信息
+            </el-button>
+          </el-col>
+        </el-row>
+        <el-row :gutter="16">
+          <el-col :span="12">
             <el-form-item label="省份" required>
               <el-input v-model="nmContactDialog.form.province" placeholder="Province/State" />
             </el-form-item>
           </el-col>
-          <el-col :span="8">
+          <el-col :span="12">
             <el-form-item label="城市" required>
               <el-input v-model="nmContactDialog.form.city" placeholder="City" />
             </el-form-item>
@@ -1258,6 +1268,168 @@ const showNmContactDialog = async () => {
   }
   nmContactDialog.isCreate = true
   nmContactDialog.visible = true
+}
+
+// 各国真实信息数据库（用于一键生成）
+const countryContactData = {
+  SG: {
+    names: [
+      { first: 'Wei Ming', last: 'Tan' },
+      { first: 'Jia Hui', last: 'Lim' },
+      { first: 'Jun Jie', last: 'Wong' },
+      { first: 'Mei Ling', last: 'Chen' },
+      { first: 'Kai Wen', last: 'Lee' }
+    ],
+    provinces: ['Singapore'],
+    cities: ['Singapore'],
+    streets: ['73 Upper Paya Lebar Road', '1 Raffles Place', '10 Bayfront Avenue', '3 Temasek Boulevard', '50 Collyer Quay'],
+    postCodes: ['534818', '048616', '018956', '038983', '049321'],
+    telAreaCode: '65',
+    phones: ['91234567', '81234567', '98765432', '87654321', '92345678']
+  },
+  US: {
+    names: [
+      { first: 'James', last: 'Smith' },
+      { first: 'Michael', last: 'Johnson' },
+      { first: 'Robert', last: 'Williams' },
+      { first: 'David', last: 'Brown' },
+      { first: 'William', last: 'Jones' }
+    ],
+    provinces: ['California', 'New York', 'Texas', 'Florida', 'Delaware'],
+    cities: ['Los Angeles', 'New York', 'Houston', 'Miami', 'Wilmington'],
+    streets: ['123 Main Street', '456 Oak Avenue', '789 Pine Boulevard', '321 Elm Drive', '654 Maple Lane'],
+    postCodes: ['90001', '10001', '77001', '33101', '19801'],
+    telAreaCode: '1',
+    phones: ['2025551234', '3105551234', '7135551234', '3055551234', '3025551234']
+  },
+  HK: {
+    names: [
+      { first: 'Ka Ming', last: 'Chan' },
+      { first: 'Wai Man', last: 'Wong' },
+      { first: 'Chi Wai', last: 'Lau' },
+      { first: 'Siu Ming', last: 'Cheung' },
+      { first: 'Hoi Yan', last: 'Ng' }
+    ],
+    provinces: ['Hong Kong'],
+    cities: ['Hong Kong', 'Kowloon', 'Tsuen Wan', 'Sha Tin', 'Tuen Mun'],
+    streets: ['1 Queens Road Central', '100 Nathan Road', '18 Harbour Road', '8 Finance Street', '33 Canton Road'],
+    postCodes: ['000000'],
+    telAreaCode: '852',
+    phones: ['21234567', '31234567', '51234567', '61234567', '91234567']
+  },
+  JP: {
+    names: [
+      { first: 'Takeshi', last: 'Yamamoto' },
+      { first: 'Yuki', last: 'Tanaka' },
+      { first: 'Kenji', last: 'Suzuki' },
+      { first: 'Hiroshi', last: 'Watanabe' },
+      { first: 'Akira', last: 'Sato' }
+    ],
+    provinces: ['Tokyo', 'Osaka', 'Kanagawa', 'Aichi', 'Fukuoka'],
+    cities: ['Shibuya', 'Osaka', 'Yokohama', 'Nagoya', 'Fukuoka'],
+    streets: ['1-1-1 Shibuya', '2-3-4 Umeda', '3-5-6 Minatomirai', '4-7-8 Sakae', '5-9-10 Tenjin'],
+    postCodes: ['150-0002', '530-0001', '220-0012', '460-0008', '810-0001'],
+    telAreaCode: '81',
+    phones: ['312345678', '612345678', '452345678', '522345678', '922345678']
+  },
+  CN: {
+    names: [
+      { first: 'Wei', last: 'Zhang' },
+      { first: 'Fang', last: 'Li' },
+      { first: 'Ming', last: 'Wang' },
+      { first: 'Jing', last: 'Liu' },
+      { first: 'Hua', last: 'Chen' }
+    ],
+    provinces: ['Beijing', 'Shanghai', 'Guangdong', 'Zhejiang', 'Jiangsu'],
+    cities: ['Beijing', 'Shanghai', 'Shenzhen', 'Hangzhou', 'Nanjing'],
+    streets: ['88 Jianguo Road', '100 Nanjing Road', '1 Shennan Avenue', '58 Qingchun Road', '268 Zhongshan Road'],
+    postCodes: ['100022', '200001', '518000', '310003', '210005'],
+    telAreaCode: '86',
+    phones: ['13812345678', '13912345678', '13612345678', '13512345678', '13712345678']
+  },
+  GB: {
+    names: [
+      { first: 'Oliver', last: 'Taylor' },
+      { first: 'Harry', last: 'Wilson' },
+      { first: 'George', last: 'Davies' },
+      { first: 'Jack', last: 'Evans' },
+      { first: 'William', last: 'Thomas' }
+    ],
+    provinces: ['England', 'Scotland', 'Wales', 'London', 'Manchester'],
+    cities: ['London', 'Edinburgh', 'Cardiff', 'Manchester', 'Birmingham'],
+    streets: ['10 Downing Street', '221B Baker Street', '1 Piccadilly', '50 Oxford Street', '100 Regent Street'],
+    postCodes: ['SW1A 2AA', 'EH1 1YZ', 'CF10 1EP', 'M1 1AD', 'B1 1AA'],
+    telAreaCode: '44',
+    phones: ['2071234567', '1312345678', '2920123456', '1612345678', '1212345678']
+  },
+  AU: {
+    names: [
+      { first: 'Jack', last: 'Thompson' },
+      { first: 'Oliver', last: 'Anderson' },
+      { first: 'William', last: 'Mitchell' },
+      { first: 'James', last: 'Campbell' },
+      { first: 'Thomas', last: 'Robinson' }
+    ],
+    provinces: ['New South Wales', 'Victoria', 'Queensland', 'Western Australia', 'South Australia'],
+    cities: ['Sydney', 'Melbourne', 'Brisbane', 'Perth', 'Adelaide'],
+    streets: ['1 George Street', '100 Collins Street', '200 Queen Street', '50 St Georges Terrace', '1 King William Street'],
+    postCodes: ['2000', '3000', '4000', '6000', '5000'],
+    telAreaCode: '61',
+    phones: ['212345678', '312345678', '732345678', '892345678', '812345678']
+  },
+  CA: {
+    names: [
+      { first: 'Liam', last: 'Martin' },
+      { first: 'Noah', last: 'Roy' },
+      { first: 'William', last: 'Gagnon' },
+      { first: 'Benjamin', last: 'Lee' },
+      { first: 'Oliver', last: 'Wilson' }
+    ],
+    provinces: ['Ontario', 'Quebec', 'British Columbia', 'Alberta', 'Manitoba'],
+    cities: ['Toronto', 'Montreal', 'Vancouver', 'Calgary', 'Winnipeg'],
+    streets: ['100 King Street West', '1000 Rue De La Gauchetiere', '200 Burrard Street', '150 9th Avenue SW', '201 Portage Avenue'],
+    postCodes: ['M5X 1A9', 'H3B 4W5', 'V6C 3L6', 'T2P 3J4', 'R3B 3K6'],
+    telAreaCode: '1',
+    phones: ['4161234567', '5141234567', '6041234567', '4031234567', '2041234567']
+  }
+}
+
+// 一键生成联系人信息
+const generateContactInfo = () => {
+  const country = nmContactDialog.form.country_code
+  const data = countryContactData[country]
+  
+  if (!data) {
+    ElMessage.warning('暂不支持该国家的自动生成')
+    return
+  }
+  
+  // 随机选择数据
+  const randomIdx = Math.floor(Math.random() * data.names.length)
+  const name = data.names[randomIdx]
+  const provinceIdx = Math.floor(Math.random() * data.provinces.length)
+  const streetIdx = Math.floor(Math.random() * data.streets.length)
+  const phoneIdx = Math.floor(Math.random() * data.phones.length)
+  const postCodeIdx = Math.floor(Math.random() * data.postCodes.length)
+  
+  // 生成随机邮箱
+  const emailDomains = ['gmail.com', 'outlook.com', 'yahoo.com', 'hotmail.com']
+  const randomEmail = `${name.first.toLowerCase().replace(' ', '')}${Math.floor(Math.random() * 1000)}@${emailDomains[Math.floor(Math.random() * emailDomains.length)]}`
+  
+  // 填充表单
+  nmContactDialog.form.first_name = name.first
+  nmContactDialog.form.last_name = name.last
+  nmContactDialog.form.province = data.provinces[provinceIdx]
+  nmContactDialog.form.city = data.cities[provinceIdx] || data.cities[0]
+  nmContactDialog.form.street = data.streets[streetIdx]
+  nmContactDialog.form.post_code = data.postCodes[postCodeIdx]
+  nmContactDialog.form.tel_area_code = data.telAreaCode
+  nmContactDialog.form.tel = data.phones[phoneIdx]
+  nmContactDialog.form.fax_area_code = data.telAreaCode
+  nmContactDialog.form.fax = data.phones[(phoneIdx + 1) % data.phones.length]
+  nmContactDialog.form.email = randomEmail
+  
+  ElMessage.success(`已生成 ${country} 地区的联系人信息`)
 }
 
 const saveNmContact = async () => {
