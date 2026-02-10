@@ -842,11 +842,33 @@ function formatDateTime(str) {
 }
 
 function copyText(text) {
-  navigator.clipboard.writeText(text).then(() => {
+  // 优先使用 clipboard API
+  if (navigator.clipboard && window.isSecureContext) {
+    navigator.clipboard.writeText(text).then(() => {
+      ElMessage.success('已复制')
+    }).catch(() => {
+      fallbackCopy(text)
+    })
+  } else {
+    fallbackCopy(text)
+  }
+}
+
+// 兼容性复制方法（支持 HTTP）
+function fallbackCopy(text) {
+  const textarea = document.createElement('textarea')
+  textarea.value = text
+  textarea.style.position = 'fixed'
+  textarea.style.left = '-9999px'
+  document.body.appendChild(textarea)
+  textarea.select()
+  try {
+    document.execCommand('copy')
     ElMessage.success('已复制')
-  }).catch(() => {
+  } catch (e) {
     ElMessage.error('复制失败')
-  })
+  }
+  document.body.removeChild(textarea)
 }
 
 // 初始化
