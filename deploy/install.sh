@@ -122,7 +122,7 @@ check_php() {
     log_check "检测PHP环境..."
     
     if command -v php &> /dev/null; then
-        local php_ver=$(php -v 2>/dev/null | head -n1 | grep -oP '\d+\.\d+' | head -1)
+        local php_ver=$(php -v 2>/dev/null | head -n1 | sed -n 's/.*PHP \([0-9]*\.[0-9]*\).*/\1/p')
         
         if [ -n "$php_ver" ]; then
             version_compare "$php_ver" "$PHP_MIN_VERSION"
@@ -167,7 +167,7 @@ check_mysql() {
     log_check "检测MySQL环境..."
     
     if command -v mysql &> /dev/null; then
-        local mysql_ver=$(mysql --version 2>/dev/null | grep -oP '\d+\.\d+' | head -1)
+        local mysql_ver=$(mysql --version 2>/dev/null | sed -n 's/.*\([0-9]\+\.[0-9]\+\).*/\1/p' | head -1)
         
         if [ -n "$mysql_ver" ]; then
             version_compare "$mysql_ver" "$MYSQL_MIN_VERSION"
@@ -199,7 +199,8 @@ check_nginx() {
     log_check "检测Nginx环境..."
     
     if command -v nginx &> /dev/null; then
-        local nginx_ver=$(nginx -v 2>&1 | grep -oP '\d+\.\d+\.\d+' || echo "unknown")
+        local nginx_ver=$(nginx -v 2>&1 | sed -n 's/.*nginx\/\([0-9.]*\).*/\1/p')
+        [ -z "$nginx_ver" ] && nginx_ver="unknown"
         log_info "Nginx已安装: $nginx_ver (✓)"
         
         # 检查Nginx服务
@@ -217,7 +218,7 @@ check_node() {
     log_check "检测Node.js环境..."
     
     if command -v node &> /dev/null; then
-        local node_ver=$(node -v 2>/dev/null | grep -oP '\d+' | head -1)
+        local node_ver=$(node -v 2>/dev/null | sed 's/v//' | cut -d. -f1)
         
         if [ -n "$node_ver" ] && [ "$node_ver" -ge "$NODE_MIN_VERSION" ]; then
             local full_ver=$(node -v 2>/dev/null)
