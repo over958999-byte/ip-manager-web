@@ -1274,11 +1274,11 @@ const showNmContactDialog = async () => {
 const countryContactData = {
   SG: {
     names: [
-      { first: 'Wei Ming', last: 'Tan' },
-      { first: 'Jia Hui', last: 'Lim' },
-      { first: 'Jun Jie', last: 'Wong' },
-      { first: 'Mei Ling', last: 'Chen' },
-      { first: 'Kai Wen', last: 'Lee' }
+      { first: 'Weiming', last: 'Tan' },
+      { first: 'Jiahui', last: 'Lim' },
+      { first: 'Junjie', last: 'Wong' },
+      { first: 'Meiling', last: 'Chen' },
+      { first: 'Kaiwen', last: 'Lee' }
     ],
     provinces: ['Singapore'],
     cities: ['Singapore'],
@@ -1304,11 +1304,11 @@ const countryContactData = {
   },
   HK: {
     names: [
-      { first: 'Ka Ming', last: 'Chan' },
-      { first: 'Wai Man', last: 'Wong' },
-      { first: 'Chi Wai', last: 'Lau' },
-      { first: 'Siu Ming', last: 'Cheung' },
-      { first: 'Hoi Yan', last: 'Ng' }
+      { first: 'Kaming', last: 'Chan' },
+      { first: 'Waiman', last: 'Wong' },
+      { first: 'Chiwai', last: 'Lau' },
+      { first: 'Siuming', last: 'Cheung' },
+      { first: 'Hoiyan', last: 'Ng' }
     ],
     provinces: ['Hong Kong'],
     cities: ['Hong Kong', 'Kowloon', 'Tsuen Wan', 'Sha Tin', 'Tuen Mun'],
@@ -1328,7 +1328,7 @@ const countryContactData = {
     provinces: ['Tokyo', 'Osaka', 'Kanagawa', 'Aichi', 'Fukuoka'],
     cities: ['Shibuya', 'Osaka', 'Yokohama', 'Nagoya', 'Fukuoka'],
     streets: ['1-1-1 Shibuya', '2-3-4 Umeda', '3-5-6 Minatomirai', '4-7-8 Sakae', '5-9-10 Tenjin'],
-    postCodes: ['150-0002', '530-0001', '220-0012', '460-0008', '810-0001'],
+    postCodes: ['1500002', '5300001', '2200012', '4600008', '8100001'],
     telAreaCode: '81',
     phones: ['312345678', '612345678', '452345678', '522345678', '922345678']
   },
@@ -1358,7 +1358,7 @@ const countryContactData = {
     provinces: ['England', 'Scotland', 'Wales', 'London', 'Manchester'],
     cities: ['London', 'Edinburgh', 'Cardiff', 'Manchester', 'Birmingham'],
     streets: ['10 Downing Street', '221B Baker Street', '1 Piccadilly', '50 Oxford Street', '100 Regent Street'],
-    postCodes: ['SW1A 2AA', 'EH1 1YZ', 'CF10 1EP', 'M1 1AD', 'B1 1AA'],
+    postCodes: ['SW1A2AA', 'EH11YZ', 'CF101EP', 'M11AD', 'B11AA'],
     telAreaCode: '44',
     phones: ['2071234567', '1312345678', '2920123456', '1612345678', '1212345678']
   },
@@ -1388,7 +1388,7 @@ const countryContactData = {
     provinces: ['Ontario', 'Quebec', 'British Columbia', 'Alberta', 'Manitoba'],
     cities: ['Toronto', 'Montreal', 'Vancouver', 'Calgary', 'Winnipeg'],
     streets: ['100 King Street West', '1000 Rue De La Gauchetiere', '200 Burrard Street', '150 9th Avenue SW', '201 Portage Avenue'],
-    postCodes: ['M5X 1A9', 'H3B 4W5', 'V6C 3L6', 'T2P 3J4', 'R3B 3K6'],
+    postCodes: ['M5X1A9', 'H3B4W5', 'V6C3L6', 'T2P3J4', 'R3B3K6'],
     telAreaCode: '1',
     phones: ['4161234567', '5141234567', '6041234567', '4031234567', '2041234567']
   }
