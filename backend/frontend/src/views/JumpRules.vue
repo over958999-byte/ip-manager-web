@@ -256,7 +256,7 @@
         <template v-if="formDialog.type === 'code'">
           <el-form-item label="使用域名">
             <el-select v-model="formDialog.form.domain_id" placeholder="选择域名" style="width: 100%">
-              <el-option v-for="d in domains" :key="d.id" :label="d.domain + (d.name ? ' (' + d.name + ')' : '') + (d.is_default ? ' [默认]' : '')" :value="d.id" />
+              <el-option v-for="d in domains" :key="d.id" :label="d.domain.replace(/^https?:\/\//, '') + (d.name ? ' (' + d.name + ')' : '') + (d.is_default ? ' [默认]' : '')" :value="d.id" />
             </el-select>
           </el-form-item>
         </template>
@@ -314,7 +314,7 @@
         </el-form-item>
         <el-form-item v-if="batchDialog.form.type === 'code'" label="使用域名">
           <el-select v-model="batchDialog.form.domain_id" placeholder="选择域名" style="width: 100%">
-            <el-option v-for="d in domains" :key="d.id" :label="d.domain + (d.name ? ' (' + d.name + ')' : '')" :value="d.id" />
+            <el-option v-for="d in domains" :key="d.id" :label="d.domain.replace(/^https?:\/\//, '') + (d.name ? ' (' + d.name + ')' : '')" :value="d.id" />
           </el-select>
         </el-form-item>
         <el-form-item :label="batchDialog.form.type === 'code' ? '原始URL' : 'IP列表'">
@@ -340,7 +340,7 @@
       <div style="margin-bottom: 16px;">
         <el-form :inline="true" :model="domainDialog.form">
           <el-form-item label="域名">
-            <el-input v-model="domainDialog.form.domain" placeholder="如: https://s.example.com" style="width: 250px" />
+            <el-input v-model="domainDialog.form.domain" placeholder="如: s.example.com" style="width: 250px" />
           </el-form-item>
           <el-form-item label="名称">
             <el-input v-model="domainDialog.form.name" placeholder="可选，便于识别" style="width: 120px" />
@@ -355,7 +355,11 @@
       </div>
       
       <el-table :data="domains" stripe style="width: 100%">
-        <el-table-column prop="domain" label="域名" min-width="200" />
+        <el-table-column label="域名" min-width="200">
+          <template #default="{ row }">
+            {{ row.domain.replace(/^https?:\/\//, '') }}
+          </template>
+        </el-table-column>
         <el-table-column prop="name" label="名称" width="120" />
         <el-table-column label="默认" width="80" align="center">
           <template #default="{ row }">
