@@ -314,13 +314,24 @@
             
             <!-- 注册结果 -->
             <el-card shadow="never" v-if="nmRegisterResults.length > 0" style="margin-top: 16px;">
-              <template #header>注册结果</template>
+              <template #header>
+                <div style="display: flex; justify-content: space-between; align-items: center;">
+                  <span>注册结果</span>
+                  <el-button type="primary" link size="small" @click="pollPendingTasks" 
+                    v-if="nmRegisterResults.some(r => r.status === 0 || r.status === 1)">
+                    <el-icon><Refresh /></el-icon> 刷新状态
+                  </el-button>
+                </div>
+              </template>
               <div style="max-height: 200px; overflow-y: auto;">
                 <div v-for="(result, index) in nmRegisterResults" :key="index" style="margin-bottom: 8px; display: flex; align-items: center; gap: 8px;">
-                  <el-tag :type="result.success ? 'success' : 'danger'" size="small">
+                  <el-tag :type="getResultTagType(result)" size="small">
                     {{ result.domain }}
                   </el-tag>
-                  <span :style="{ color: result.success ? '#67c23a' : '#f56c6c', fontSize: '12px' }">
+                  <el-tag v-if="result.status === 0 || result.status === 1" type="warning" size="small" effect="plain">
+                    {{ result.status_text || '处理中' }}
+                  </el-tag>
+                  <span :style="{ color: getResultColor(result), fontSize: '12px' }">
                     {{ result.message }}
                   </span>
                   <span v-if="result.cloudflare" style="font-size: 12px; color: #909399;">[+Cloudflare]</span>
@@ -692,7 +703,8 @@ import api, {
   nmCheckDomains as apiNmCheckDomains,
   nmRegisterDomains,
   nmCreateContact,
-  nmGetContactInfo
+  nmGetContactInfo,
+  nmGetTaskStatus
 } from '../api'
 import { Plus, Delete, Refresh, Setting, User, Upload } from '@element-plus/icons-vue'
 
@@ -1156,6 +1168,7 @@ const nmSelectedDomains = ref([])
 const nmRegisterResults = ref([])
 const nmRegisterYears = ref(1)
 const nmAddToCloudflare = ref(false)
+const nmPendingTasks = ref([])  // 待检查的异步任务
 
 // 事件日志
 const nmEventLogs = ref([])
@@ -1176,6 +1189,71 @@ const addEventLog = (message, type = 'info') => {
 
 const clearEventLogs = () => {
   nmEventLogs.value = []
+}
+
+// 检查单个任务状态
+const checkTaskStatus = async (domain, taskNo) => {
+  try {
+    const res = await nmGetTaskStatus(taskNo)
+    if (res.success) {
+      // 更新对应域名的状态
+      const result = nmRegisterResults.value.find(r => r.domain === domain)
+      if (result) {
+        result.status = res.status
+        result.status_text = res.status_text
+        if (res.status === 2) {
+          result.message = '注册成功'
+          addEventLog(`${domain} 注册完成`, 'success')
+        } else if (res.status === 3) {
+          result.success = false
+          result.message = res.message || '注册失败'
+          addEventLog(`${domain} 注册失败: ${res.message}`, 'error')
+        }
+      }
+      return res.status
+    }
+  } catch (e) {
+    console.error('检查任务状态失败:', e)
+  }
+  return -1
+}
+
+// 轮询检查所有待处理任务
+const pollPendingTasks = async () => {
+  const pendingResults = nmRegisterResults.value.filter(r => r.task_no && r.status !== 2 && r.status !== 3)
+  if (pendingResults.length === 0) return
+  
+  addEventLog(`正在检查 ${pendingResults.length} 个任务状态...`, 'loading')
+  
+  for (const result of pendingResults) {
+    await checkTaskStatus(result.domain, result.task_no)
+    await new Promise(resolve => setTimeout(resolve, 500))  // 避免API限流
+  }
+  
+  // 检查是否还有待处理任务
+  const stillPending = nmRegisterResults.value.filter(r => r.task_no && r.status !== 2 && r.status !== 3)
+  if (stillPending.length > 0) {
+    addEventLog(`还有 ${stillPending.length} 个任务处理中，5秒后再次检查`, 'info')
+    setTimeout(pollPendingTasks, 5000)
+  } else {
+    addEventLog(`所有任务处理完成`, 'success')
+  }
+}
+
+// 根据注册结果获取tag类型
+const getResultTagType = (result) => {
+  if (result.status === 2) return 'success'
+  if (result.status === 3 || !result.success) return 'danger'
+  if (result.status === 0 || result.status === 1) return 'warning'
+  return result.success ? 'success' : 'danger'
+}
+
+// 根据注册结果获取颜色
+const getResultColor = (result) => {
+  if (result.status === 2) return '#67c23a'
+  if (result.status === 3 || !result.success) return '#f56c6c'
+  if (result.status === 0 || result.status === 1) return '#e6a23c'
+  return result.success ? '#67c23a' : '#f56c6c'
 }
 
 const nmAvailableCount = computed(() => nmCheckResults.value.filter(r => r.available).length)
@@ -1541,26 +1619,38 @@ const nmRegisterSelected = async () => {
       dns2: nmConfig.default_dns2
     })
     if (res.success) {
-      nmRegisterResults.value = res.results || []
+      // 为每个结果添加初始状态
+      nmRegisterResults.value = (res.results || []).map(r => ({
+        ...r,
+        status: r.task_no ? 1 : (r.success ? 2 : 3),  // 有task_no说明是异步，设置为进行中
+        status_text: r.task_no ? '处理中' : (r.success ? '成功' : '失败')
+      }))
       const summary = res.summary || {}
       
       // 输出每个域名的处理结果
       for (const result of res.results || []) {
         if (result.success) {
-          let msg = `${result.domain} 注册成功`
+          let msg = `${result.domain} ${result.task_no ? '任务已提交' : '注册成功'}`
           if (result.cloudflare) msg += ' [已添加到CF]'
-          addEventLog(msg, 'success')
+          addEventLog(msg, result.task_no ? 'loading' : 'success')
         } else {
           addEventLog(`${result.domain} 注册失败: ${result.message}`, 'error')
         }
       }
       
-      addEventLog(`注册完成：${summary.success || 0} 成功，${summary.failed || 0} 失败`, summary.failed > 0 ? 'warning' : 'success')
-      ElMessage.success(`注册完成：${summary.success || 0} 成功，${summary.failed || 0} 失败`)
+      addEventLog(`提交完成：${summary.success || 0} 成功，${summary.failed || 0} 失败`, summary.failed > 0 ? 'warning' : 'success')
+      ElMessage.success(`提交完成：${summary.success || 0} 成功，${summary.failed || 0} 失败`)
       
       // 清除已注册的域名
       nmCheckResults.value = nmCheckResults.value.filter(r => !domainsToRegister.includes(r.domain))
       nmSelectedDomains.value = []
+      
+      // 如果有异步任务，启动轮询
+      const asyncTasks = (res.results || []).filter(r => r.task_no && r.success)
+      if (asyncTasks.length > 0) {
+        addEventLog(`检测到 ${asyncTasks.length} 个异步任务，3秒后开始检查状态...`, 'info')
+        setTimeout(pollPendingTasks, 3000)
+      }
     } else {
       addEventLog(`注册失败: ${res.message}`, 'error')
       ElMessage.error(res.message || '注册失败')
