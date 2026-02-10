@@ -126,15 +126,73 @@
         </el-card>
       </el-col>
     </el-row>
+
+    <!-- Cloudflare 配置 -->
+    <el-row style="margin-top: 20px;">
+      <el-col :span="24">
+        <el-card>
+          <template #header>
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+              <span>Cloudflare API 配置</span>
+              <el-tag :type="cfConfigured ? 'success' : 'warning'" size="small">
+                {{ cfConfigured ? '已配置' : '未配置' }}
+              </el-tag>
+            </div>
+          </template>
+          <el-form :model="cfForm" label-width="140px" style="max-width: 600px;">
+            <el-form-item label="API Token">
+              <el-input 
+                v-model="cfForm.api_token" 
+                placeholder="Cloudflare API Token" 
+                show-password
+                clearable
+              />
+            </el-form-item>
+            <el-form-item label="Account ID">
+              <el-input 
+                v-model="cfForm.account_id" 
+                placeholder="Cloudflare Account ID"
+                clearable
+              />
+            </el-form-item>
+            <el-form-item label="默认服务器 IP">
+              <el-input 
+                v-model="cfForm.default_server_ip" 
+                placeholder="DNS 记录指向的服务器 IP 地址"
+                clearable
+              />
+            </el-form-item>
+            <el-form-item>
+              <el-button type="primary" @click="saveCfConfig" :loading="savingCf">
+                保存配置
+              </el-button>
+              <el-button @click="testCfConfig" :loading="testingCf" :disabled="!cfForm.api_token">
+                测试连接
+              </el-button>
+            </el-form-item>
+          </el-form>
+          <el-divider />
+          <div class="cf-tips">
+            <h4 style="margin: 0 0 12px;">获取 Cloudflare API 凭据：</h4>
+            <ol style="margin: 0; padding-left: 20px; color: #666; line-height: 2;">
+              <li>登录 <a href="https://dash.cloudflare.com" target="_blank">Cloudflare Dashboard</a></li>
+              <li>点击右上角头像 → <strong>My Profile</strong> → <strong>API Tokens</strong></li>
+              <li>创建 Token，选择 <strong>"Edit zone DNS"</strong> 模板（或自定义权限）</li>
+              <li>Account ID 在任意域名的 <strong>概览页右侧</strong> 可以找到</li>
+            </ol>
+          </div>
+        </el-card>
+      </el-col>
+    </el-row>
   </div>
 </template>
 
 <script setup>
-import { ref, reactive, onMounted, onUnmounted } from 'vue'
+import { ref, reactive, computed, onMounted, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useUserStore } from '../stores/user'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import api from '../api'
+import api, { cfGetConfig, cfSaveConfig, cfListZones } from '../api'
 
 const router = useRouter()
 const userStore = useUserStore()
@@ -353,15 +411,92 @@ onMounted(() => {
   // 获取系统信息和检查更新
   fetchSystemInfo()
   checkUpdate()
+  loadCfConfig()
 })
 
 onUnmounted(() => {
   if (timer) clearInterval(timer)
 })
+
+// ==================== Cloudflare 配置 ====================
+const cfForm = reactive({
+  api_token: '',
+  account_id: '',
+  default_server_ip: ''
+})
+const savingCf = ref(false)
+const testingCf = ref(false)
+const cfConfigured = computed(() => cfForm.api_token && cfForm.account_id && cfForm.default_server_ip)
+
+const loadCfConfig = async () => {
+  try {
+    const res = await cfGetConfig()
+    if (res.success && res.config) {
+      Object.assign(cfForm, res.config)
+    }
+  } catch {}
+}
+
+const saveCfConfig = async () => {
+  if (!cfForm.api_token || !cfForm.account_id || !cfForm.default_server_ip) {
+    ElMessage.warning('请填写完整的配置信息')
+    return
+  }
+  savingCf.value = true
+  try {
+    const res = await cfSaveConfig(cfForm)
+    if (res.success) {
+      ElMessage.success('Cloudflare 配置已保存')
+    } else {
+      ElMessage.error(res.message || '保存失败')
+    }
+  } finally {
+    savingCf.value = false
+  }
+}
+
+const testCfConfig = async () => {
+  if (!cfForm.api_token) {
+    ElMessage.warning('请先填写 API Token')
+    return
+  }
+  testingCf.value = true
+  try {
+    // 先保存配置
+    await cfSaveConfig(cfForm)
+    // 然后测试连接
+    const res = await cfListZones()
+    if (res.success) {
+      const zoneCount = res.zones?.length || 0
+      ElMessage.success(`连接成功！当前账户有 ${zoneCount} 个域名`)
+    } else {
+      ElMessage.error(res.message || '连接失败，请检查 API Token')
+    }
+  } catch {
+    ElMessage.error('连接失败，请检查网络或 API Token')
+  } finally {
+    testingCf.value = false
+  }
+}
 </script>
 
 <style scoped>
 .settings-page {
   padding: 0;
+}
+
+.cf-tips {
+  background: #f5f7fa;
+  padding: 16px;
+  border-radius: 4px;
+}
+
+.cf-tips a {
+  color: #409eff;
+  text-decoration: none;
+}
+
+.cf-tips a:hover {
+  text-decoration: underline;
 }
 </style>
