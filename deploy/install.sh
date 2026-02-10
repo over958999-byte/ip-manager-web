@@ -100,7 +100,8 @@ version_compare() {
         return 0
     fi
     local IFS=.
-    local i ver1=($1) ver2=($2)
+    local i
+    local -a ver1=($1) ver2=($2)
     for ((i=0; i<${#ver1[@]}; i++)); do
         if [ -z "${ver2[i]}" ]; then
             ver2[i]=0
