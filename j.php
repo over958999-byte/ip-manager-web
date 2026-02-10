@@ -4,10 +4,17 @@
  * 支持：
  *   1. IP跳转：直接访问 IP 时触发
  *   2. 短码跳转：访问 /j/CODE 或 /j.php?c=CODE 触发
+ * 
+ * 功能（IP跳转和短链共用）：
+ *   - 反爬虫检测
+ *   - 设备限制（桌面/iOS/Android）
+ *   - 国家白名单
+ *   - 访问统计
  */
 
 require_once __DIR__ . '/backend/core/database.php';
 require_once __DIR__ . '/backend/core/jump.php';
+require_once __DIR__ . '/public/antibot.php';
 
 // 获取数据库和跳转服务实例
 $db = Database::getInstance();
@@ -247,30 +254,37 @@ $deviceType = detectDeviceType();
 $ua = $_SERVER['HTTP_USER_AGENT'] ?? '';
 $uaInfo = JumpService::parseUserAgent($ua);
 
-// 检查设备限制 (仅IP跳转)
-if ($ruleType === JumpService::TYPE_IP) {
-    $blockedDevice = $jumpService->checkDeviceBlock($rule, $deviceType);
-    if ($blockedDevice) {
-        $deviceNames = [
-            'desktop' => '桌面设备',
-            'ios' => 'iOS设备',
-            'android' => 'Android设备'
-        ];
-        showErrorPage('该设备类型(' . ($deviceNames[$blockedDevice] ?? $blockedDevice) . ')已被禁止访问');
-    }
-    
-    // 检查国家白名单
-    $countryCode = getIpCountryCode($visitorIp);
-    $blockedCountry = $jumpService->checkCountryBlock($rule, $countryCode);
-    if ($blockedCountry) {
-        showErrorPage('您所在的地区(' . $blockedCountry . ')不允许访问');
-    }
+// ==================== 反爬虫检测 ====================
+$antibot = new AntiBot();
+$antibot->setTargetIp($matchKey);
+$antibotResult = $antibot->check();
+
+if (!$antibotResult['allowed']) {
+    showErrorPage($antibotResult['message'] ?? '访问被拦截', 403);
+}
+
+// ==================== 检查设备限制（IP跳转和短链共用）====================
+$blockedDevice = $jumpService->checkDeviceBlock($rule, $deviceType);
+if ($blockedDevice) {
+    $deviceNames = [
+        'desktop' => '桌面设备',
+        'ios' => 'iOS设备',
+        'android' => 'Android设备'
+    ];
+    showErrorPage('该设备类型(' . ($deviceNames[$blockedDevice] ?? $blockedDevice) . ')已被禁止访问');
+}
+
+// ==================== 检查国家白名单（IP跳转和短链共用）====================
+$countryCode = getIpCountryCode($visitorIp);
+$blockedCountry = $jumpService->checkCountryBlock($rule, $countryCode);
+if ($blockedCountry) {
+    showErrorPage('您所在的地区(' . $blockedCountry . ')不允许访问');
 }
 
 // 准备访问者信息
 $visitorInfo = [
     'ip' => $visitorIp,
-    'country' => getIpCountryCode($visitorIp),
+    'country' => $countryCode,
     'device_type' => $uaInfo['device_type'],
     'os' => $uaInfo['os'],
     'browser' => $uaInfo['browser'],

@@ -261,23 +261,21 @@
           </el-form-item>
         </template>
 
-        <!-- IP跳转特有选项 -->
-        <template v-if="formDialog.type === 'ip'">
-          <el-divider content-position="left">设备限制</el-divider>
-          <el-form-item label="禁止设备">
-            <el-checkbox v-model="formDialog.form.block_desktop">禁止PC</el-checkbox>
-            <el-checkbox v-model="formDialog.form.block_ios">禁止iOS</el-checkbox>
-            <el-checkbox v-model="formDialog.form.block_android">禁止Android</el-checkbox>
-          </el-form-item>
-          <el-form-item label="国家白名单">
-            <el-switch v-model="formDialog.form.country_whitelist_enabled" />
-          </el-form-item>
-          <el-form-item v-if="formDialog.form.country_whitelist_enabled" label="允许国家">
-            <el-select v-model="formDialog.form.country_whitelist" multiple placeholder="选择允许的国家" style="width: 100%">
-              <el-option v-for="c in countries" :key="c.code" :label="c.name" :value="c.code" />
-            </el-select>
-          </el-form-item>
-        </template>
+        <!-- 设备限制和国家白名单 (所有类型通用) -->
+        <el-divider content-position="left">访问限制</el-divider>
+        <el-form-item label="禁止设备">
+          <el-checkbox v-model="formDialog.form.block_desktop">禁止PC</el-checkbox>
+          <el-checkbox v-model="formDialog.form.block_ios">禁止iOS</el-checkbox>
+          <el-checkbox v-model="formDialog.form.block_android">禁止Android</el-checkbox>
+        </el-form-item>
+        <el-form-item label="国家白名单">
+          <el-switch v-model="formDialog.form.country_whitelist_enabled" />
+        </el-form-item>
+        <el-form-item v-if="formDialog.form.country_whitelist_enabled" label="允许国家">
+          <el-select v-model="formDialog.form.country_whitelist" multiple placeholder="选择允许的国家" style="width: 100%">
+            <el-option v-for="c in countries" :key="c.code" :label="c.name" :value="c.code" />
+          </el-select>
+        </el-form-item>
 
         <!-- 短链特有选项 -->
         <template v-if="formDialog.type === 'code'">
