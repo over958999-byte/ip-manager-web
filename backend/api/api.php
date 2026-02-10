@@ -2112,6 +2112,21 @@ switch ($action) {
                         'zone_id' => $cfResult['zone_id'] ?? null,
                         'name_servers' => $cfResult['name_servers']
                     ];
+                    
+                    // 保存到 cf_domains 表（Cloudflare管理）
+                    $pdo = $db->getPdo();
+                    try {
+                        $stmt = $pdo->prepare("INSERT INTO cf_domains (domain, zone_id, status, nameservers, server_ip, https_enabled, added_to_pool, created_at) VALUES (?, ?, ?, ?, ?, 0, 0, NOW()) ON DUPLICATE KEY UPDATE zone_id = VALUES(zone_id), nameservers = VALUES(nameservers), status = VALUES(status)");
+                        $stmt->execute([
+                            $cfResult['root_domain'] ?? $domain,
+                            $cfResult['zone_id'],
+                            $cfResult['status'] ?? 'pending',
+                            json_encode($cfResult['name_servers']),
+                            ''
+                        ]);
+                    } catch (Exception $e) {
+                        // 忽略保存失败，不影响主流程
+                    }
                 } else {
                     $cfInfo = [
                         'success' => false,
