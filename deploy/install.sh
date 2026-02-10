@@ -132,7 +132,7 @@ check_php() {
         local php_ver=$(php -v 2>/dev/null | head -n1 | sed -n 's/.*PHP \([0-9]*\.[0-9]*\).*/\1/p')
         
         if [ -n "$php_ver" ]; then
-            version_compare "$php_ver" "$PHP_MIN_VERSION"
+            version_compare "$php_ver" "$PHP_MIN_VERSION" || true
             local result=$?
             
             if [ $result -eq 0 ] || [ $result -eq 1 ]; then
@@ -177,7 +177,7 @@ check_mysql() {
         local mysql_ver=$(mysql --version 2>/dev/null | sed -n 's/.*\([0-9]\+\.[0-9]\+\).*/\1/p' | head -1)
         
         if [ -n "$mysql_ver" ]; then
-            version_compare "$mysql_ver" "$MYSQL_MIN_VERSION"
+            version_compare "$mysql_ver" "$MYSQL_MIN_VERSION" || true
             local result=$?
             
             if [ $result -eq 0 ] || [ $result -eq 1 ]; then
