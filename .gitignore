@@ -7,6 +7,12 @@ dist/
 build/
 target/
 
+# SSH Keys (敏感文件，不要上传)
+keys/
+*.pem
+id_rsa*
+server_key*
+
 # IDE
 .idea/
 .vscode/
