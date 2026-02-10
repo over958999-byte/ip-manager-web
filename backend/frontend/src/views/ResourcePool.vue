@@ -340,6 +340,9 @@
         <el-form-item label="默认服务器IP" required>
           <el-input v-model="cfConfigDialog.form.default_server_ip" placeholder="DNS记录指向的服务器IP" />
         </el-form-item>
+        <el-form-item label="配置别名">
+          <el-input v-model="cfConfigDialog.form.alias" placeholder="可选，便于识别此配置" />
+        </el-form-item>
       </el-form>
       <div class="tips" style="margin-top: 16px; padding: 12px; background: #f5f7fa; border-radius: 4px;">
         <p style="margin: 0 0 8px;"><strong>获取方式：</strong></p>
@@ -735,14 +738,15 @@ const deleteDomainAction = async (row) => {
 const cfConfig = reactive({
   api_token: '',
   account_id: '',
-  default_server_ip: ''
+  default_server_ip: '',
+  alias: ''
 })
 const cfZones = ref([])
 const cfConfigured = computed(() => cfConfig.api_token && cfConfig.account_id && cfConfig.default_server_ip)
 
 const cfConfigDialog = reactive({
   visible: false,
-  form: { api_token: '', account_id: '', default_server_ip: '' }
+  form: { api_token: '', account_id: '', default_server_ip: '', alias: '' }
 })
 
 const cfAddDialog = reactive({
