@@ -244,6 +244,77 @@
               />
               <span style="margin-left: 8px; color: #909399;">次拦截后拉黑</span>
             </el-form-item>
+
+            <el-divider content-position="left">拦截后处理</el-divider>
+            <el-form-item label="处理方式">
+              <el-select v-model="configBlockAction.type" @change="saveConfig" style="width: 100%;">
+                <el-option label="显示错误页面" value="error_page" />
+                <el-option label="跳转到URL" value="redirect" />
+                <el-option label="伪装内容" value="fake_content" />
+                <el-option label="慢速响应" value="slow_response" />
+                <el-option label="连接重置" value="connection_reset" />
+                <el-option label="焦油坑(Tarpit)" value="tarpit" />
+                <el-option label="随机错误码" value="random_error" />
+                <el-option label="验证码挑战" value="captcha" />
+                <el-option label="静默记录" value="silent_log" />
+              </el-select>
+            </el-form-item>
+            <el-form-item label="HTTP状态码" v-if="configBlockAction.type === 'error_page' || configBlockAction.type === 'slow_response'">
+              <el-select v-model="configBlockAction.http_code" @change="saveConfig" style="width: 100%;">
+                <el-option label="400 Bad Request" :value="400" />
+                <el-option label="403 Forbidden" :value="403" />
+                <el-option label="404 Not Found" :value="404" />
+                <el-option label="429 Too Many Requests" :value="429" />
+                <el-option label="500 Internal Server Error" :value="500" />
+                <el-option label="502 Bad Gateway" :value="502" />
+                <el-option label="503 Service Unavailable" :value="503" />
+              </el-select>
+            </el-form-item>
+            <el-form-item label="自定义消息" v-if="['error_page', 'slow_response', 'random_error'].includes(configBlockAction.type)">
+              <el-input 
+                v-model="configBlockAction.custom_message" 
+                placeholder="Access Denied"
+                @change="saveConfig"
+              />
+            </el-form-item>
+            <el-form-item label="跳转URL" v-if="configBlockAction.type === 'redirect'">
+              <el-input 
+                v-model="configBlockAction.redirect_url" 
+                placeholder="https://www.google.com"
+                @change="saveConfig"
+              />
+            </el-form-item>
+            <el-form-item label="伪装HTML" v-if="configBlockAction.type === 'fake_content'">
+              <el-input 
+                type="textarea"
+                :rows="3"
+                v-model="configBlockAction.fake_content" 
+                placeholder="<html><body>Page not found</body></html>"
+                @change="saveConfig"
+              />
+            </el-form-item>
+            <el-form-item label="响应延迟">
+              <div style="display: flex; align-items: center; gap: 8px;">
+                <el-input-number 
+                  v-model="configBlockAction.delay_min" 
+                  :min="0" 
+                  :max="5000"
+                  :step="50"
+                  placeholder="100"
+                  @change="saveConfig"
+                />
+                <span>~</span>
+                <el-input-number 
+                  v-model="configBlockAction.delay_max" 
+                  :min="0" 
+                  :max="10000"
+                  :step="50"
+                  placeholder="500"
+                  @change="saveConfig"
+                />
+                <span style="color: #909399;">毫秒</span>
+              </div>
+            </el-form-item>
           </el-form>
         </el-card>
 
@@ -397,6 +468,15 @@ const config = reactive({
   behavior_check: {},
   bad_ip_database: {},
   auto_blacklist: {},
+  block_action: {
+    type: 'error_page',
+    http_code: 403,
+    custom_message: 'Access Denied',
+    redirect_url: 'https://www.google.com',
+    fake_content: '<html><body>Page not found</body></html>',
+    delay_min: 100,
+    delay_max: 500
+  },
   ip_blacklist: [],
   ip_whitelist: []
 })
@@ -445,6 +525,12 @@ const configHoneypot = computed(() => config.honeypot || {})
 const configBehaviorCheck = computed(() => config.behavior_check || {})
 const configBadIpDatabase = computed(() => config.bad_ip_database || {})
 const configAutoBlacklist = computed(() => config.auto_blacklist || {})
+const configBlockAction = computed(() => config.block_action || {
+  type: 'error_page',
+  http_code: 403,
+  delay_min: 100,
+  delay_max: 500
+})
 
 const blacklistDialogVisible = ref(false)
 const whitelistDialogVisible = ref(false)
