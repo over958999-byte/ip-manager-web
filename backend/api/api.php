@@ -1512,6 +1512,7 @@ switch ($action) {
         }
         
         // 从数据库获取本系统添加的域名
+        $pdo = $db->getPdo();
         $stmt = $pdo->query("SELECT * FROM cf_domains ORDER BY created_at DESC");
         $localDomains = $stmt->fetchAll(PDO::FETCH_ASSOC);
         
