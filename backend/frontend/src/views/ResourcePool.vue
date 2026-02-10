@@ -106,7 +106,7 @@
           </span>
           <div class="tab-actions">
             <el-button size="small" type="warning" @click="checkAllDomainsSafety" :loading="loading.safety">
-              <el-icon><Shield /></el-icon> 安全检测
+              <el-icon><Check /></el-icon> 安全检测
             </el-button>
             <el-button size="small" @click="checkDomainsResolve" :loading="loading.checking">
               <el-icon><Refresh /></el-icon> 检测解析
@@ -214,6 +214,56 @@
                 <p>• 默认域名会在新建短链时自动选中</p>
                 <p>• 域名需要在DNS解析到服务器IP</p>
                 <p>• 域名自动添加HTTPS前缀</p>
+              </div>
+            </el-card>
+            
+            <!-- 事件处理进度 -->
+            <el-card shadow="never" style="margin-top: 16px;">
+              <template #header>
+                <div style="display: flex; justify-content: space-between; align-items: center;">
+                  <span>事件处理进度</span>
+                  <el-button 
+                    v-if="safetyProgress.logs.length > 0" 
+                    link 
+                    type="primary" 
+                    size="small" 
+                    @click="clearSafetyLogs"
+                  >
+                    清空
+                  </el-button>
+                </div>
+              </template>
+              <div class="progress-panel">
+                <div v-if="safetyProgress.checking" class="progress-status">
+                  <el-icon class="is-loading"><Loading /></el-icon>
+                  <span>{{ safetyProgress.currentDomain }}</span>
+                </div>
+                <div v-if="safetyProgress.total > 0" class="progress-bar-wrapper">
+                  <el-progress 
+                    :percentage="safetyProgress.percentage" 
+                    :status="safetyProgress.completed === safetyProgress.total ? 'success' : ''"
+                    :stroke-width="8"
+                  />
+                  <div class="progress-text">
+                    {{ safetyProgress.completed }} / {{ safetyProgress.total }}
+                  </div>
+                </div>
+                <div class="progress-logs" v-if="safetyProgress.logs.length > 0">
+                  <div 
+                    v-for="(log, idx) in safetyProgress.logs.slice(-10)" 
+                    :key="idx" 
+                    class="progress-log-item"
+                    :class="'log-' + log.status"
+                  >
+                    <el-icon v-if="log.status === 'safe'" class="log-icon"><CircleCheckFilled /></el-icon>
+                    <el-icon v-else-if="log.status === 'warning'" class="log-icon"><WarningFilled /></el-icon>
+                    <el-icon v-else-if="log.status === 'danger'" class="log-icon"><CircleCloseFilled /></el-icon>
+                    <el-icon v-else class="log-icon"><InfoFilled /></el-icon>
+                    <span class="log-domain">{{ log.domain }}</span>
+                    <span class="log-message">{{ log.message }}</span>
+                  </div>
+                </div>
+                <el-empty v-else description="暂无检测记录" :image-size="60" />
               </div>
             </el-card>
           </el-col>
@@ -881,12 +931,29 @@ import api, {
   nmGetContactInfo,
   nmGetTaskStatus
 } from '../api'
-import { Plus, Delete, Refresh, Setting, User, Upload } from '@element-plus/icons-vue'
+import { Plus, Delete, Refresh, Setting, User, Upload, Loading, CircleCheckFilled, WarningFilled, CircleCloseFilled, InfoFilled, Check } from '@element-plus/icons-vue'
 
 const activeTab = ref('ip')
 const domainSubTab = ref('purchase')  // 域名购买子标签: purchase / cloudflare
 const loading = reactive({ ip: false, domain: false, checking: false, cf: false, safety: false, nmCheck: false, nmRegister: false, cfManage: false, dnsRecords: false })
 const submitting = ref(false)
+
+// ==================== 安全检测进度相关 ====================
+const safetyProgress = reactive({
+  checking: false,
+  currentDomain: '',
+  total: 0,
+  completed: 0,
+  percentage: 0,
+  logs: []
+})
+
+const clearSafetyLogs = () => {
+  safetyProgress.logs = []
+  safetyProgress.total = 0
+  safetyProgress.completed = 0
+  safetyProgress.percentage = 0
+}
 
 // ==================== Cloudflare管理相关 ====================
 const cfManageZones = ref([])
@@ -1204,7 +1271,9 @@ const getSafetyTooltip = (row) => {
 // 检测单个域名安全状态
 const checkSingleDomainSafety = async (row) => {
   try {
-    ElMessage.info(`正在检测 ${row.domain}...`)
+    safetyProgress.checking = true
+    safetyProgress.currentDomain = `正在检测 ${row.domain}...`
+    
     const res = await domainSafetyCheck(row.domain, row.id)
     if (res.success) {
       // 更新本地数据
@@ -1212,6 +1281,18 @@ const checkSingleDomainSafety = async (row) => {
       row.safety_detail = res.detail
       row.last_check_at = new Date().toISOString()
       updateSafetyStats()
+      
+      // 添加到进度日志
+      let message = '安全'
+      if (res.status === 'warning') message = '存在警告'
+      else if (res.status === 'danger') message = '危险'
+      else if (res.status === 'unknown') message = '未知'
+      
+      safetyProgress.logs.push({
+        domain: row.domain,
+        status: res.status,
+        message: message
+      })
       
       if (res.status === 'safe') {
         ElMessage.success(`${row.domain} 安全检测通过`)
@@ -1221,31 +1302,99 @@ const checkSingleDomainSafety = async (row) => {
         ElMessage.error(`${row.domain} 被标记为危险`)
       }
     } else {
+      safetyProgress.logs.push({
+        domain: row.domain,
+        status: 'unknown',
+        message: res.message || '检测失败'
+      })
       ElMessage.error(res.message || '检测失败')
     }
   } catch {
+    safetyProgress.logs.push({
+      domain: row.domain,
+      status: 'unknown',
+      message: '检测失败'
+    })
     ElMessage.error('检测失败')
+  } finally {
+    safetyProgress.checking = false
+    safetyProgress.currentDomain = ''
   }
 }
 
-// 检测所有域名安全状态
+// 检测所有域名安全状态（逐个检测显示进度）
 const checkAllDomainsSafety = async () => {
+  if (domains.value.length === 0) {
+    ElMessage.warning('没有域名需要检测')
+    return
+  }
+  
   loading.safety = true
+  safetyProgress.checking = true
+  safetyProgress.total = domains.value.length
+  safetyProgress.completed = 0
+  safetyProgress.percentage = 0
+  safetyProgress.logs = []
+  
+  let safeCount = 0
+  let warningCount = 0
+  let dangerCount = 0
+  
   try {
-    ElMessage.info('正在检测所有域名安全状态，请稍候...')
-    const res = await domainSafetyCheckAll()
-    if (res.success) {
-      const stats = res.stats || {}
-      ElMessage.success(`检测完成：安全 ${stats.safe || 0}，警告 ${stats.warning || 0}，危险 ${stats.danger || 0}`)
-      // 重新加载域名列表以获取最新状态
-      await loadDomains()
-    } else {
-      ElMessage.error(res.message || '检测失败')
+    for (const domain of domains.value) {
+      safetyProgress.currentDomain = `正在检测 ${domain.domain}...`
+      
+      try {
+        const res = await domainSafetyCheck(domain.domain, domain.id)
+        if (res.success) {
+          // 更新本地数据
+          domain.safety_status = res.status
+          domain.safety_detail = res.detail
+          domain.last_check_at = new Date().toISOString()
+          
+          // 统计结果
+          if (res.status === 'safe') safeCount++
+          else if (res.status === 'warning') warningCount++
+          else if (res.status === 'danger') dangerCount++
+          
+          // 添加到进度日志
+          let message = '安全'
+          if (res.status === 'warning') message = '存在警告'
+          else if (res.status === 'danger') message = '危险'
+          else if (res.status === 'unknown') message = '未知'
+          
+          safetyProgress.logs.push({
+            domain: domain.domain,
+            status: res.status,
+            message: message
+          })
+        } else {
+          safetyProgress.logs.push({
+            domain: domain.domain,
+            status: 'unknown',
+            message: res.message || '检测失败'
+          })
+        }
+      } catch {
+        safetyProgress.logs.push({
+          domain: domain.domain,
+          status: 'unknown',
+          message: '检测失败'
+        })
+      }
+      
+      safetyProgress.completed++
+      safetyProgress.percentage = Math.round((safetyProgress.completed / safetyProgress.total) * 100)
     }
-  } catch {
-    ElMessage.error('检测失败')
+    
+    updateSafetyStats()
+    ElMessage.success(`检测完成：安全 ${safeCount}，警告 ${warningCount}，危险 ${dangerCount}`)
+  } catch (e) {
+    ElMessage.error('检测过程中发生错误')
   } finally {
     loading.safety = false
+    safetyProgress.checking = false
+    safetyProgress.currentDomain = ''
   }
 }
 
@@ -2268,4 +2417,88 @@ watch(domainSubTab, (newVal) => {
   font-size: 14px;
   font-weight: 500;
 }
+
+/* 安全检测进度面板样式 */
+.progress-panel {
+  min-height: 150px;
+}
+
+.progress-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  background: #f0f9ff;
+  border-radius: 4px;
+  margin-bottom: 12px;
+  font-size: 13px;
+  color: #409eff;
+}
+
+.progress-status .is-loading {
+  animation: rotate 1.5s linear infinite;
+}
+
+@keyframes rotate {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+.progress-bar-wrapper {
+  margin-bottom: 12px;
+}
+
+.progress-text {
+  text-align: center;
+  font-size: 12px;
+  color: #909399;
+  margin-top: 4px;
+}
+
+.progress-logs {
+  max-height: 200px;
+  overflow-y: auto;
+  border: 1px solid #ebeef5;
+  border-radius: 4px;
+}
+
+.progress-log-item {
+  display: flex;
+  align-items: center;
+  padding: 6px 10px;
+  border-bottom: 1px solid #f0f0f0;
+  font-size: 12px;
+}
+
+.progress-log-item:last-child {
+  border-bottom: none;
+}
+
+.progress-log-item .log-icon {
+  margin-right: 6px;
+  font-size: 14px;
+}
+
+.progress-log-item .log-domain {
+  font-weight: 500;
+  margin-right: 8px;
+  max-width: 120px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.progress-log-item .log-message {
+  color: #606266;
+}
+
+.progress-log-item.log-safe .log-icon { color: #67C23A; }
+.progress-log-item.log-warning .log-icon { color: #E6A23C; }
+.progress-log-item.log-danger .log-icon { color: #F56C6C; }
+.progress-log-item.log-unknown .log-icon { color: #909399; }
+
+.progress-log-item.log-safe { background-color: #f0f9eb; }
+.progress-log-item.log-warning { background-color: #fdf6ec; }
+.progress-log-item.log-danger { background-color: #fef0f0; }
+.progress-log-item.log-unknown { background-color: #f4f4f5; }
 </style>
