@@ -1209,24 +1209,54 @@ switch ($action) {
         // 获取服务器公网IP
         $serverIp = getServerPublicIp();
         
-        // DNS解析域名
+        // 生成唯一验证token
+        $verifyToken = md5($serverIp . '_ip_manager_' . date('Ymd'));
+        
+        // 方法1: 使用HTTPS请求验证（支持Cloudflare等CDN）
+        $isResolved = false;
+        $verifyMethod = 'https';
         $resolvedIps = [];
-        $dnsRecords = @dns_get_record($domain, DNS_A);
-        if ($dnsRecords) {
-            foreach ($dnsRecords as $record) {
-                if (isset($record['ip'])) {
-                    $resolvedIps[] = $record['ip'];
+        
+        // 尝试HTTPS验证端点
+        $verifyUrl = "https://{$domain}/_verify_server";
+        $ch = curl_init();
+        curl_setopt_array($ch, [
+            CURLOPT_URL => $verifyUrl,
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_TIMEOUT => 10,
+            CURLOPT_SSL_VERIFYPEER => false,
+            CURLOPT_SSL_VERIFYHOST => false,
+            CURLOPT_FOLLOWLOCATION => true,
+            CURLOPT_USERAGENT => 'IPManager-Verify/1.0'
+        ]);
+        $response = curl_exec($ch);
+        $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        curl_close($ch);
+        
+        // 检查是否返回正确的验证token
+        if ($httpCode === 200 && trim($response) === $verifyToken) {
+            $isResolved = true;
+            $resolvedIps = ['(通过Cloudflare/CDN)'];
+        } else {
+            // 方法2: 回退到DNS检查（用于非CDN情况）
+            $verifyMethod = 'dns';
+            $dnsRecords = @dns_get_record($domain, DNS_A);
+            if ($dnsRecords) {
+                foreach ($dnsRecords as $record) {
+                    if (isset($record['ip'])) {
+                        $resolvedIps[] = $record['ip'];
+                    }
                 }
             }
+            
+            // 也尝试gethostbyname
+            $hostIp = @gethostbyname($domain);
+            if ($hostIp !== $domain && !in_array($hostIp, $resolvedIps)) {
+                $resolvedIps[] = $hostIp;
+            }
+            
+            $isResolved = in_array($serverIp, $resolvedIps);
         }
-        
-        // 也尝试gethostbyname
-        $hostIp = @gethostbyname($domain);
-        if ($hostIp !== $domain && !in_array($hostIp, $resolvedIps)) {
-            $resolvedIps[] = $hostIp;
-        }
-        
-        $isResolved = in_array($serverIp, $resolvedIps);
         
         echo json_encode([
             'success' => true,
@@ -1235,6 +1265,7 @@ switch ($action) {
                 'server_ip' => $serverIp,
                 'resolved_ips' => $resolvedIps,
                 'is_resolved' => $isResolved,
+                'verify_method' => $verifyMethod,
                 'status' => $isResolved ? 'ok' : (empty($resolvedIps) ? 'not_resolved' : 'wrong_ip')
             ]
         ]);
@@ -1251,32 +1282,71 @@ switch ($action) {
         
         $domains = $jump->getDomains(false);
         $serverIp = getServerPublicIp();
+        $verifyToken = md5($serverIp . '_ip_manager_' . date('Ymd'));
         $results = [];
         
         foreach ($domains as $d) {
             $domain = preg_replace('#^https?://#', '', $d['domain']);
             $domain = rtrim($domain, '/');
             
+            // 跳过IP地址类型的域名
+            if (filter_var($domain, FILTER_VALIDATE_IP)) {
+                $results[$d['id']] = [
+                    'resolved_ips' => [$domain],
+                    'is_resolved' => $domain === $serverIp,
+                    'verify_method' => 'ip',
+                    'status' => $domain === $serverIp ? 'ok' : 'wrong_ip'
+                ];
+                continue;
+            }
+            
+            $isResolved = false;
+            $verifyMethod = 'https';
             $resolvedIps = [];
-            $dnsRecords = @dns_get_record($domain, DNS_A);
-            if ($dnsRecords) {
-                foreach ($dnsRecords as $record) {
-                    if (isset($record['ip'])) {
-                        $resolvedIps[] = $record['ip'];
+            
+            // 方法1: 使用HTTPS请求验证（支持Cloudflare等CDN）
+            $verifyUrl = "https://{$domain}/_verify_server";
+            $ch = curl_init();
+            curl_setopt_array($ch, [
+                CURLOPT_URL => $verifyUrl,
+                CURLOPT_RETURNTRANSFER => true,
+                CURLOPT_TIMEOUT => 5,
+                CURLOPT_SSL_VERIFYPEER => false,
+                CURLOPT_SSL_VERIFYHOST => false,
+                CURLOPT_FOLLOWLOCATION => true,
+                CURLOPT_USERAGENT => 'IPManager-Verify/1.0'
+            ]);
+            $response = curl_exec($ch);
+            $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+            curl_close($ch);
+            
+            if ($httpCode === 200 && trim($response) === $verifyToken) {
+                $isResolved = true;
+                $resolvedIps = ['(通过Cloudflare/CDN)'];
+            } else {
+                // 方法2: 回退到DNS检查
+                $verifyMethod = 'dns';
+                $dnsRecords = @dns_get_record($domain, DNS_A);
+                if ($dnsRecords) {
+                    foreach ($dnsRecords as $record) {
+                        if (isset($record['ip'])) {
+                            $resolvedIps[] = $record['ip'];
+                        }
                     }
                 }
+                
+                $hostIp = @gethostbyname($domain);
+                if ($hostIp !== $domain && !in_array($hostIp, $resolvedIps)) {
+                    $resolvedIps[] = $hostIp;
+                }
+                
+                $isResolved = in_array($serverIp, $resolvedIps);
             }
-            
-            $hostIp = @gethostbyname($domain);
-            if ($hostIp !== $domain && !in_array($hostIp, $resolvedIps)) {
-                $resolvedIps[] = $hostIp;
-            }
-            
-            $isResolved = in_array($serverIp, $resolvedIps);
             
             $results[$d['id']] = [
                 'resolved_ips' => $resolvedIps,
                 'is_resolved' => $isResolved,
+                'verify_method' => $verifyMethod,
                 'status' => $isResolved ? 'ok' : (empty($resolvedIps) ? 'not_resolved' : 'wrong_ip')
             ];
         }
