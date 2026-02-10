@@ -152,7 +152,7 @@
 <script setup>
 import { ref, reactive, onMounted } from 'vue'
 import { Search, Refresh, Download } from '@element-plus/icons-vue'
-import { getAuditLogs, exportAuditLogs } from '@/api'
+import { getAuditLogs, exportAuditLogs } from '../api'
 import { ElMessage } from 'element-plus'
 
 // 数据

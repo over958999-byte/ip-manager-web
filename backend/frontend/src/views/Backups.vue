@@ -113,8 +113,8 @@ import {
   restoreBackup, 
   downloadBackup, 
   deleteBackup 
-} from '@/api'
-import api from '@/api'
+} from '../api'
+import api from '../api'
 import { ElMessage, ElMessageBox } from 'element-plus'
 
 // 数据

@@ -96,7 +96,7 @@
 <script setup>
 import { ref, reactive, onMounted } from 'vue'
 import { Plus } from '@element-plus/icons-vue'
-import { getUsers, createUser, updateUser, deleteUser, resetUserPassword } from '@/api'
+import { getUsers, createUser, updateUser, deleteUser, resetUserPassword } from '../api'
 import { ElMessage, ElMessageBox } from 'element-plus'
 
 // 数据

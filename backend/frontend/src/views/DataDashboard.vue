@@ -141,7 +141,7 @@ import {
   ArrowUp, 
   ArrowDown 
 } from '@element-plus/icons-vue'
-import { getDashboardStats, getTrendData, getRealtimeLogs } from '@/api'
+import { getDashboardStats, getTrendData, getRealtimeLogs } from '../api'
 
 // 统计数据
 const stats = ref({

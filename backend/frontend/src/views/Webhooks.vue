@@ -134,7 +134,7 @@ import {
   deleteWebhook, 
   testWebhook,
   getWebhookLogs 
-} from '@/api'
+} from '../api'
 import { ElMessage, ElMessageBox } from 'element-plus'
 
 // 数据
