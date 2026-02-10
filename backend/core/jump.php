@@ -343,7 +343,7 @@ class JumpService {
      */
     public function getJumpUrl(string $type, string $matchKey, ?int $domainId = null): string {
         if ($type === self::TYPE_IP) {
-            return 'http://' . $matchKey . '/';
+            return 'https://' . $matchKey . '/';
         }
         
         // 获取域名
@@ -357,7 +357,7 @@ class JumpService {
         
         if (!$domain) {
             $defaultDomain = $this->getDefaultDomain();
-            $domain = $defaultDomain ? $defaultDomain['domain'] : 'http://localhost:8080/j';
+            $domain = $defaultDomain ? $defaultDomain['domain'] : 'https://localhost/j';
         }
         
         // 确保域名有协议前缀
