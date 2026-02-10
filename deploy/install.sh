@@ -4,6 +4,11 @@
 # IP管理器 - Linux一键部署脚本
 # 支持系统: Ubuntu 20.04+, Debian 11+, CentOS 7+, Rocky Linux 8+
 # 仓库地址: https://github.com/over958999-byte/ip-manager-web
+# 
+# 特性:
+#   - 智能环境检测: 自动检测已安装的组件，跳过无需安装的部分
+#   - 版本验证: 检测组件版本是否满足最低要求，不满足则重装
+#   - 强制模式: 使用 -f 参数强制重新安装所有组件
 #===============================================================================
 
 set -e
@@ -13,6 +18,7 @@ RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
+CYAN='\033[0;36m'
 NC='\033[0m' # No Color
 
 # 配置变量
@@ -20,30 +26,46 @@ INSTALL_DIR="/var/www/ip-manager"
 REPO_URL="https://github.com/over958999-byte/ip-manager-web.git"
 DB_NAME="ip_manager"
 DB_USER="ip_manager"
-DB_PASS=$(openssl rand -base64 12)
+DB_PASS=""
 DOMAIN=""
+
+# 版本要求
 PHP_VERSION="8.2"
+PHP_MIN_VERSION="8.0"
 NODE_VERSION="20"
+NODE_MIN_VERSION="18"
+MYSQL_MIN_VERSION="5.7"
 
 # 默认后台账号密码
 ADMIN_USER="admin"
 ADMIN_PASS="admin123"
 
+# 环境检测标志
+NEED_INSTALL_PHP=false
+NEED_INSTALL_MYSQL=false
+NEED_INSTALL_NGINX=false
+NEED_INSTALL_NODE=false
+FORCE_INSTALL=false
+
 # 日志函数
 log_info() {
-    echo -e "${GREEN}[INFO]${NC} $1"
+    echo -e "${GREEN}[✓]${NC} $1"
 }
 
 log_warn() {
-    echo -e "${YELLOW}[WARN]${NC} $1"
+    echo -e "${YELLOW}[!]${NC} $1"
 }
 
 log_error() {
-    echo -e "${RED}[ERROR]${NC} $1"
+    echo -e "${RED}[✗]${NC} $1"
 }
 
 log_step() {
     echo -e "${BLUE}[STEP]${NC} $1"
+}
+
+log_check() {
+    echo -e "${CYAN}[CHECK]${NC} $1"
 }
 
 # 检测系统类型
@@ -70,6 +92,213 @@ check_root() {
     fi
 }
 
+# ==================== 版本比较函数 ====================
+
+# 比较版本号 (返回: 0=相等, 1=第一个大, 2=第一个小)
+version_compare() {
+    if [ "$1" = "$2" ]; then
+        return 0
+    fi
+    local IFS=.
+    local i ver1=($1) ver2=($2)
+    for ((i=0; i<${#ver1[@]}; i++)); do
+        if [ -z "${ver2[i]}" ]; then
+            ver2[i]=0
+        fi
+        if ((10#${ver1[i]:-0} > 10#${ver2[i]:-0})); then
+            return 1
+        fi
+        if ((10#${ver1[i]:-0} < 10#${ver2[i]:-0})); then
+            return 2
+        fi
+    done
+    return 0
+}
+
+# ==================== 环境检测函数 ====================
+
+# 检测PHP
+check_php() {
+    log_check "检测PHP环境..."
+    
+    if command -v php &> /dev/null; then
+        local php_ver=$(php -v 2>/dev/null | head -n1 | grep -oP '\d+\.\d+' | head -1)
+        
+        if [ -n "$php_ver" ]; then
+            version_compare "$php_ver" "$PHP_MIN_VERSION"
+            local result=$?
+            
+            if [ $result -eq 0 ] || [ $result -eq 1 ]; then
+                log_info "PHP已安装: $php_ver (✓ 满足最低要求 $PHP_MIN_VERSION)"
+                
+                # 检查必要的PHP扩展
+                local missing_ext=""
+                for ext in mysqli pdo_mysql curl mbstring xml zip gd; do
+                    if ! php -m 2>/dev/null | grep -qi "^$ext$"; then
+                        missing_ext="$missing_ext $ext"
+                    fi
+                done
+                
+                if [ -n "$missing_ext" ]; then
+                    log_warn "缺少PHP扩展:$missing_ext"
+                    NEED_INSTALL_PHP=true
+                    return
+                fi
+                
+                # 检查PHP-FPM
+                if ! systemctl is-active --quiet php*-fpm 2>/dev/null; then
+                    log_warn "PHP-FPM未运行，将进行配置"
+                fi
+                
+                return
+            fi
+        fi
+        
+        log_warn "PHP版本 $php_ver 低于最低要求 $PHP_MIN_VERSION，将重新安装"
+        NEED_INSTALL_PHP=true
+    else
+        log_warn "PHP未安装"
+        NEED_INSTALL_PHP=true
+    fi
+}
+
+# 检测MySQL
+check_mysql() {
+    log_check "检测MySQL环境..."
+    
+    if command -v mysql &> /dev/null; then
+        local mysql_ver=$(mysql --version 2>/dev/null | grep -oP '\d+\.\d+' | head -1)
+        
+        if [ -n "$mysql_ver" ]; then
+            version_compare "$mysql_ver" "$MYSQL_MIN_VERSION"
+            local result=$?
+            
+            if [ $result -eq 0 ] || [ $result -eq 1 ]; then
+                log_info "MySQL已安装: $mysql_ver (✓ 满足最低要求 $MYSQL_MIN_VERSION)"
+                
+                # 检查MySQL服务是否运行
+                if ! (systemctl is-active --quiet mysql 2>/dev/null || \
+                      systemctl is-active --quiet mysqld 2>/dev/null || \
+                      systemctl is-active --quiet mariadb 2>/dev/null); then
+                    log_warn "MySQL服务未运行，将启动服务"
+                fi
+                return
+            fi
+        fi
+        
+        log_warn "MySQL版本 $mysql_ver 低于最低要求 $MYSQL_MIN_VERSION，将重新安装"
+        NEED_INSTALL_MYSQL=true
+    else
+        log_warn "MySQL未安装"
+        NEED_INSTALL_MYSQL=true
+    fi
+}
+
+# 检测Nginx
+check_nginx() {
+    log_check "检测Nginx环境..."
+    
+    if command -v nginx &> /dev/null; then
+        local nginx_ver=$(nginx -v 2>&1 | grep -oP '\d+\.\d+\.\d+' || echo "unknown")
+        log_info "Nginx已安装: $nginx_ver (✓)"
+        
+        # 检查Nginx服务
+        if ! systemctl is-active --quiet nginx 2>/dev/null; then
+            log_warn "Nginx服务未运行，将启动服务"
+        fi
+    else
+        log_warn "Nginx未安装"
+        NEED_INSTALL_NGINX=true
+    fi
+}
+
+# 检测Node.js
+check_node() {
+    log_check "检测Node.js环境..."
+    
+    if command -v node &> /dev/null; then
+        local node_ver=$(node -v 2>/dev/null | grep -oP '\d+' | head -1)
+        
+        if [ -n "$node_ver" ] && [ "$node_ver" -ge "$NODE_MIN_VERSION" ]; then
+            local full_ver=$(node -v 2>/dev/null)
+            log_info "Node.js已安装: $full_ver (✓ 满足最低要求 v$NODE_MIN_VERSION)"
+            
+            # 检查npm
+            if ! command -v npm &> /dev/null; then
+                log_warn "npm未安装，将重新安装Node.js"
+                NEED_INSTALL_NODE=true
+                return
+            fi
+            return
+        fi
+        
+        log_warn "Node.js版本 v$node_ver 低于最低要求 v$NODE_MIN_VERSION，将重新安装"
+        NEED_INSTALL_NODE=true
+    else
+        log_warn "Node.js未安装"
+        NEED_INSTALL_NODE=true
+    fi
+}
+
+# 环境检测总结
+check_environment() {
+    echo ""
+    echo "============================================================"
+    echo -e "${CYAN}🔍 环境检测${NC}"
+    echo "============================================================"
+    echo ""
+    
+    check_php
+    check_mysql
+    check_nginx
+    check_node
+    
+    echo ""
+    echo "------------------------------------------------------------"
+    echo -e "${CYAN}📋 检测结果汇总${NC}"
+    echo "------------------------------------------------------------"
+    
+    local need_install=false
+    
+    if $NEED_INSTALL_PHP; then
+        echo -e "  PHP:      ${YELLOW}需要安装/更新${NC}"
+        need_install=true
+    else
+        echo -e "  PHP:      ${GREEN}✓ 已就绪${NC}"
+    fi
+    
+    if $NEED_INSTALL_MYSQL; then
+        echo -e "  MySQL:    ${YELLOW}需要安装/更新${NC}"
+        need_install=true
+    else
+        echo -e "  MySQL:    ${GREEN}✓ 已就绪${NC}"
+    fi
+    
+    if $NEED_INSTALL_NGINX; then
+        echo -e "  Nginx:    ${YELLOW}需要安装/更新${NC}"
+        need_install=true
+    else
+        echo -e "  Nginx:    ${GREEN}✓ 已就绪${NC}"
+    fi
+    
+    if $NEED_INSTALL_NODE; then
+        echo -e "  Node.js:  ${YELLOW}需要安装/更新${NC}"
+        need_install=true
+    else
+        echo -e "  Node.js:  ${GREEN}✓ 已就绪${NC}"
+    fi
+    
+    echo "------------------------------------------------------------"
+    
+    if $need_install; then
+        log_step "将安装/更新缺失的组件..."
+    else
+        log_info "所有环境组件已就绪，跳过环境安装步骤"
+    fi
+    
+    echo ""
+}
+
 # 安装依赖 - Debian/Ubuntu
 install_debian() {
     log_step "更新软件包列表..."
@@ -78,34 +307,49 @@ install_debian() {
     log_step "安装基础工具..."
     apt-get install -y curl wget git unzip software-properties-common gnupg2 lsb-release ca-certificates apt-transport-https
 
-    # 添加PHP仓库
-    log_step "添加PHP仓库..."
-    if [ "$OS" = "ubuntu" ]; then
-        add-apt-repository -y ppa:ondrej/php
+    # 安装PHP (如果需要)
+    if $NEED_INSTALL_PHP; then
+        log_step "添加PHP仓库..."
+        if [ "$OS" = "ubuntu" ]; then
+            add-apt-repository -y ppa:ondrej/php 2>/dev/null || true
+        else
+            wget -qO /etc/apt/trusted.gpg.d/php.gpg https://packages.sury.org/php/apt.gpg 2>/dev/null || true
+            echo "deb https://packages.sury.org/php/ $(lsb_release -sc) main" > /etc/apt/sources.list.d/php.list 2>/dev/null || true
+        fi
+        apt-get update -y
+
+        log_step "安装PHP ${PHP_VERSION}..."
+        apt-get install -y php${PHP_VERSION} php${PHP_VERSION}-fpm php${PHP_VERSION}-mysql php${PHP_VERSION}-curl \
+            php${PHP_VERSION}-mbstring php${PHP_VERSION}-xml php${PHP_VERSION}-zip \
+            php${PHP_VERSION}-gd php${PHP_VERSION}-intl php${PHP_VERSION}-bcmath
     else
-        wget -qO /etc/apt/trusted.gpg.d/php.gpg https://packages.sury.org/php/apt.gpg
-        echo "deb https://packages.sury.org/php/ $(lsb_release -sc) main" > /etc/apt/sources.list.d/php.list
+        log_info "PHP已满足要求，跳过安装"
     fi
-    apt-get update -y
 
-    # 安装PHP
-    log_step "安装PHP ${PHP_VERSION}..."
-    apt-get install -y php${PHP_VERSION} php${PHP_VERSION}-fpm php${PHP_VERSION}-mysql php${PHP_VERSION}-curl \
-        php${PHP_VERSION}-mbstring php${PHP_VERSION}-xml php${PHP_VERSION}-zip \
-        php${PHP_VERSION}-gd php${PHP_VERSION}-intl php${PHP_VERSION}-bcmath
+    # 安装MySQL (如果需要)
+    if $NEED_INSTALL_MYSQL; then
+        log_step "安装MySQL..."
+        apt-get install -y mysql-server
+    else
+        log_info "MySQL已满足要求，跳过安装"
+    fi
 
-    # 安装MySQL
-    log_step "安装MySQL..."
-    apt-get install -y mysql-server
+    # 安装Nginx (如果需要)
+    if $NEED_INSTALL_NGINX; then
+        log_step "安装Nginx..."
+        apt-get install -y nginx
+    else
+        log_info "Nginx已满足要求，跳过安装"
+    fi
 
-    # 安装Nginx
-    log_step "安装Nginx..."
-    apt-get install -y nginx
-
-    # 安装Node.js
-    log_step "安装Node.js ${NODE_VERSION}..."
-    curl -fsSL https://deb.nodesource.com/setup_${NODE_VERSION}.x | bash -
-    apt-get install -y nodejs
+    # 安装Node.js (如果需要)
+    if $NEED_INSTALL_NODE; then
+        log_step "安装Node.js ${NODE_VERSION}..."
+        curl -fsSL https://deb.nodesource.com/setup_${NODE_VERSION}.x | bash -
+        apt-get install -y nodejs
+    else
+        log_info "Node.js已满足要求，跳过安装"
+    fi
 }
 
 # 安装依赖 - CentOS/RHEL/Rocky
@@ -116,50 +360,65 @@ install_centos() {
     log_step "安装基础工具..."
     yum install -y curl wget git unzip epel-release yum-utils
 
-    # 添加PHP仓库
-    log_step "添加PHP仓库..."
-    if [ "$VERSION" -ge 8 ]; then
-        dnf install -y https://rpms.remirepo.net/enterprise/remi-release-${VERSION}.rpm
-        dnf module reset php -y
-        dnf module enable php:remi-${PHP_VERSION} -y
+    # 安装PHP (如果需要)
+    if $NEED_INSTALL_PHP; then
+        log_step "添加PHP仓库..."
+        if [ "$VERSION" -ge 8 ]; then
+            dnf install -y https://rpms.remirepo.net/enterprise/remi-release-${VERSION}.rpm 2>/dev/null || true
+            dnf module reset php -y 2>/dev/null || true
+            dnf module enable php:remi-${PHP_VERSION} -y 2>/dev/null || true
+        else
+            yum install -y https://rpms.remirepo.net/enterprise/remi-release-7.rpm 2>/dev/null || true
+            yum-config-manager --enable remi-php82 2>/dev/null || true
+        fi
+
+        log_step "安装PHP ${PHP_VERSION}..."
+        if [ "$VERSION" -ge 8 ]; then
+            dnf install -y php php-fpm php-mysqlnd php-curl php-mbstring \
+                php-xml php-zip php-gd php-intl php-bcmath
+        else
+            yum install -y php php-fpm php-mysqlnd php-curl php-mbstring \
+                php-xml php-zip php-gd php-intl php-bcmath
+        fi
     else
-        yum install -y https://rpms.remirepo.net/enterprise/remi-release-7.rpm
-        yum-config-manager --enable remi-php82
+        log_info "PHP已满足要求，跳过安装"
     fi
 
-    # 安装PHP
-    log_step "安装PHP ${PHP_VERSION}..."
-    if [ "$VERSION" -ge 8 ]; then
-        dnf install -y php php-fpm php-mysqlnd php-curl php-json php-mbstring \
-            php-xml php-zip php-gd php-intl php-bcmath
+    # 安装MySQL (如果需要)
+    if $NEED_INSTALL_MYSQL; then
+        log_step "安装MySQL..."
+        if [ "$VERSION" -ge 8 ]; then
+            dnf install -y mysql-server
+        else
+            yum install -y mariadb-server mariadb
+        fi
     else
-        yum install -y php php-fpm php-mysqlnd php-curl php-json php-mbstring \
-            php-xml php-zip php-gd php-intl php-bcmath
+        log_info "MySQL已满足要求，跳过安装"
     fi
 
-    # 安装MySQL
-    log_step "安装MySQL..."
-    if [ "$VERSION" -ge 8 ]; then
-        dnf install -y mysql-server
+    # 安装Nginx (如果需要)
+    if $NEED_INSTALL_NGINX; then
+        log_step "安装Nginx..."
+        if [ "$VERSION" -ge 8 ]; then
+            dnf install -y nginx
+        else
+            yum install -y nginx
+        fi
     else
-        yum install -y mariadb-server mariadb
+        log_info "Nginx已满足要求，跳过安装"
     fi
 
-    # 安装Nginx
-    log_step "安装Nginx..."
-    if [ "$VERSION" -ge 8 ]; then
-        dnf install -y nginx
+    # 安装Node.js (如果需要)
+    if $NEED_INSTALL_NODE; then
+        log_step "安装Node.js ${NODE_VERSION}..."
+        curl -fsSL https://rpm.nodesource.com/setup_${NODE_VERSION}.x | bash -
+        if [ "$VERSION" -ge 8 ]; then
+            dnf install -y nodejs
+        else
+            yum install -y nodejs
+        fi
     else
-        yum install -y nginx
-    fi
-
-    # 安装Node.js
-    log_step "安装Node.js ${NODE_VERSION}..."
-    curl -fsSL https://rpm.nodesource.com/setup_${NODE_VERSION}.x | bash -
-    if [ "$VERSION" -ge 8 ]; then
-        dnf install -y nodejs
-    else
-        yum install -y nodejs
+        log_info "Node.js已满足要求，跳过安装"
     fi
 }
 
@@ -168,32 +427,71 @@ configure_mysql() {
     log_step "配置MySQL..."
 
     # 启动MySQL
-    systemctl start mysql 2>/dev/null || systemctl start mysqld 2>/dev/null || systemctl start mariadb 2>/dev/null
-    systemctl enable mysql 2>/dev/null || systemctl enable mysqld 2>/dev/null || systemctl enable mariadb 2>/dev/null
+    systemctl start mysql 2>/dev/null || systemctl start mysqld 2>/dev/null || systemctl start mariadb 2>/dev/null || true
+    systemctl enable mysql 2>/dev/null || systemctl enable mysqld 2>/dev/null || systemctl enable mariadb 2>/dev/null || true
+
+    # 检查数据库是否已存在
+    if mysql -e "USE ${DB_NAME}" 2>/dev/null; then
+        log_info "数据库 ${DB_NAME} 已存在"
+        
+        # 尝试读取现有配置
+        if [ -f "$INSTALL_DIR/backend/core/db_config.php" ]; then
+            DB_PASS=$(grep "DB_PASS" "$INSTALL_DIR/backend/core/db_config.php" 2>/dev/null | grep -oP "'[^']+'" | tail -1 | tr -d "'" || echo "")
+            if [ -n "$DB_PASS" ]; then
+                log_info "使用现有数据库配置"
+                return
+            fi
+        fi
+    fi
+    
+    # 生成新密码
+    DB_PASS=$(openssl rand -base64 12)
 
     # 创建数据库和用户
     log_info "创建数据库..."
     mysql -e "CREATE DATABASE IF NOT EXISTS ${DB_NAME} CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;"
-    mysql -e "CREATE USER IF NOT EXISTS '${DB_USER}'@'localhost' IDENTIFIED BY '${DB_PASS}';"
+    mysql -e "CREATE USER IF NOT EXISTS '${DB_USER}'@'localhost' IDENTIFIED BY '${DB_PASS}';" 2>/dev/null || \
+    mysql -e "CREATE USER '${DB_USER}'@'localhost' IDENTIFIED BY '${DB_PASS}';" 2>/dev/null || true
+    mysql -e "ALTER USER '${DB_USER}'@'localhost' IDENTIFIED BY '${DB_PASS}';" 2>/dev/null || true
     mysql -e "GRANT ALL PRIVILEGES ON ${DB_NAME}.* TO '${DB_USER}'@'localhost';"
     mysql -e "FLUSH PRIVILEGES;"
 
-    log_info "数据库 ${DB_NAME} 创建成功"
+    log_info "数据库 ${DB_NAME} 配置成功"
 }
 
-# 克隆项目
+# 克隆或更新项目
 clone_project() {
-    log_step "克隆项目代码..."
+    log_step "获取项目代码..."
 
-    if [ -d "$INSTALL_DIR" ]; then
-        log_warn "目录已存在，正在备份..."
-        mv "$INSTALL_DIR" "${INSTALL_DIR}_backup_$(date +%Y%m%d%H%M%S)"
+    if [ -d "$INSTALL_DIR/.git" ]; then
+        log_info "项目已存在，执行更新..."
+        cd "$INSTALL_DIR"
+        
+        # 备份配置文件
+        if [ -f "backend/core/db_config.php" ]; then
+            cp backend/core/db_config.php /tmp/db_config.php.bak 2>/dev/null || true
+        fi
+        
+        git fetch origin 2>/dev/null || true
+        git reset --hard origin/master 2>/dev/null || git reset --hard origin/main 2>/dev/null || true
+        
+        # 恢复配置文件
+        if [ -f "/tmp/db_config.php.bak" ]; then
+            cp /tmp/db_config.php.bak backend/core/db_config.php 2>/dev/null || true
+        fi
+        
+        log_info "项目更新完成"
+    else
+        if [ -d "$INSTALL_DIR" ]; then
+            log_warn "目录已存在但非Git仓库，正在备份..."
+            mv "$INSTALL_DIR" "${INSTALL_DIR}_backup_$(date +%Y%m%d%H%M%S)"
+        fi
+
+        git clone "$REPO_URL" "$INSTALL_DIR"
+        cd "$INSTALL_DIR"
+        
+        log_info "项目克隆完成"
     fi
-
-    git clone "$REPO_URL" "$INSTALL_DIR"
-    cd "$INSTALL_DIR"
-    
-    log_info "项目克隆完成"
 }
 
 # 导入数据库
@@ -202,8 +500,16 @@ import_database() {
 
     cd "$INSTALL_DIR"
     
+    # 检查表是否已存在
+    if mysql -e "SELECT 1 FROM ${DB_NAME}.config LIMIT 1" 2>/dev/null; then
+        log_info "数据库表已存在，跳过导入"
+        return
+    fi
+    
     # 导入主数据库结构
-    mysql "$DB_NAME" < backend/database.sql
+    if [ -f "backend/database.sql" ]; then
+        mysql "$DB_NAME" < backend/database.sql
+    fi
     
     # 导入初始配置
     if [ -f "backend/init_config.sql" ]; then
@@ -221,6 +527,14 @@ import_database() {
 # 创建数据库配置文件
 create_db_config() {
     log_step "创建数据库配置文件..."
+    
+    # 如果配置已存在且有效，跳过
+    if [ -f "$INSTALL_DIR/backend/core/db_config.php" ]; then
+        if grep -q "DB_PASS" "$INSTALL_DIR/backend/core/db_config.php" 2>/dev/null; then
+            log_info "数据库配置文件已存在，跳过创建"
+            return
+        fi
+    fi
 
     cat > "$INSTALL_DIR/backend/core/db_config.php" << EOF
 <?php
@@ -242,6 +556,11 @@ build_frontend() {
 
     cd "$INSTALL_DIR/backend/frontend"
     
+    # 检查是否需要重新构建
+    if [ -d "$INSTALL_DIR/public/admin" ] && [ -f "$INSTALL_DIR/public/admin/index.html" ]; then
+        log_info "前端已构建，重新构建以确保最新..."
+    fi
+    
     # 安装依赖
     npm install
     
@@ -252,6 +571,9 @@ build_frontend() {
     if [ -d "dist" ]; then
         mkdir -p "$INSTALL_DIR/public/admin"
         cp -r dist/* "$INSTALL_DIR/public/admin/"
+    elif [ -d "$INSTALL_DIR/dist" ]; then
+        mkdir -p "$INSTALL_DIR/public/admin"
+        cp -r "$INSTALL_DIR/dist"/* "$INSTALL_DIR/public/admin/"
     fi
 
     log_info "前端构建完成"
@@ -264,11 +586,21 @@ configure_nginx() {
     # 获取PHP-FPM socket路径
     PHP_FPM_SOCK="/run/php/php${PHP_VERSION}-fpm.sock"
     if [ ! -S "$PHP_FPM_SOCK" ]; then
+        PHP_FPM_SOCK=$(find /run/php -name "*.sock" 2>/dev/null | head -1)
+    fi
+    if [ -z "$PHP_FPM_SOCK" ] || [ ! -S "$PHP_FPM_SOCK" ]; then
         PHP_FPM_SOCK="/var/run/php-fpm/www.sock"
     fi
     if [ ! -S "$PHP_FPM_SOCK" ]; then
         PHP_FPM_SOCK="127.0.0.1:9000"
+        FASTCGI_PASS="fastcgi_pass ${PHP_FPM_SOCK};"
+    else
+        FASTCGI_PASS="fastcgi_pass unix:${PHP_FPM_SOCK};"
     fi
+
+    # 创建sites-available目录（如果不存在）
+    mkdir -p /etc/nginx/sites-available 2>/dev/null || true
+    mkdir -p /etc/nginx/sites-enabled 2>/dev/null || true
 
     cat > /etc/nginx/sites-available/ip-manager << EOF
 server {
@@ -293,24 +625,22 @@ server {
     }
 
     # 管理后台API
-    location /api.php {
-        alias ${INSTALL_DIR}/backend/api/api.php;
-        fastcgi_pass unix:${PHP_FPM_SOCK};
+    location ~ ^/api\.php {
+        ${FASTCGI_PASS}
         fastcgi_param SCRIPT_FILENAME ${INSTALL_DIR}/backend/api/api.php;
         include fastcgi_params;
     }
 
     # 短链接跳转
-    location /j.php {
-        alias ${INSTALL_DIR}/j.php;
-        fastcgi_pass unix:${PHP_FPM_SOCK};
+    location ~ ^/j\.php {
+        ${FASTCGI_PASS}
         fastcgi_param SCRIPT_FILENAME ${INSTALL_DIR}/j.php;
         include fastcgi_params;
     }
 
     # PHP处理
-    location ~ \.php$ {
-        fastcgi_pass unix:${PHP_FPM_SOCK};
+    location ~ \.php\$ {
+        ${FASTCGI_PASS}
         fastcgi_param SCRIPT_FILENAME \$document_root\$fastcgi_script_name;
         include fastcgi_params;
         fastcgi_intercept_errors on;
@@ -328,11 +658,16 @@ server {
 }
 EOF
 
-    # 创建软链接
-    ln -sf /etc/nginx/sites-available/ip-manager /etc/nginx/sites-enabled/
-
-    # 移除默认配置
-    rm -f /etc/nginx/sites-enabled/default 2>/dev/null || true
+    # 创建软链接 (Debian/Ubuntu)
+    if [ -d "/etc/nginx/sites-enabled" ]; then
+        ln -sf /etc/nginx/sites-available/ip-manager /etc/nginx/sites-enabled/
+        rm -f /etc/nginx/sites-enabled/default 2>/dev/null || true
+    fi
+    
+    # 复制到conf.d (CentOS/RHEL)
+    if [ -d "/etc/nginx/conf.d" ] && [ ! -d "/etc/nginx/sites-enabled" ]; then
+        cp /etc/nginx/sites-available/ip-manager /etc/nginx/conf.d/ip-manager.conf
+    fi
 
     # 测试配置
     nginx -t
@@ -344,7 +679,17 @@ EOF
 configure_nginx_centos() {
     log_step "配置Nginx (CentOS)..."
 
+    # 获取PHP-FPM socket路径
     PHP_FPM_SOCK="/var/run/php-fpm/www.sock"
+    if [ ! -S "$PHP_FPM_SOCK" ]; then
+        PHP_FPM_SOCK=$(find /var/run/php-fpm -name "*.sock" 2>/dev/null | head -1)
+    fi
+    if [ -z "$PHP_FPM_SOCK" ] || [ ! -S "$PHP_FPM_SOCK" ]; then
+        PHP_FPM_SOCK="127.0.0.1:9000"
+        FASTCGI_PASS="fastcgi_pass ${PHP_FPM_SOCK};"
+    else
+        FASTCGI_PASS="fastcgi_pass unix:${PHP_FPM_SOCK};"
+    fi
 
     cat > /etc/nginx/conf.d/ip-manager.conf << EOF
 server {
@@ -365,22 +710,20 @@ server {
         try_files \$uri \$uri/ /admin/index.html;
     }
 
-    location /api.php {
-        alias ${INSTALL_DIR}/backend/api/api.php;
-        fastcgi_pass unix:${PHP_FPM_SOCK};
+    location ~ ^/api\.php {
+        ${FASTCGI_PASS}
         fastcgi_param SCRIPT_FILENAME ${INSTALL_DIR}/backend/api/api.php;
         include fastcgi_params;
     }
 
-    location /j.php {
-        alias ${INSTALL_DIR}/j.php;
-        fastcgi_pass unix:${PHP_FPM_SOCK};
+    location ~ ^/j\.php {
+        ${FASTCGI_PASS}
         fastcgi_param SCRIPT_FILENAME ${INSTALL_DIR}/j.php;
         include fastcgi_params;
     }
 
-    location ~ \.php$ {
-        fastcgi_pass unix:${PHP_FPM_SOCK};
+    location ~ \.php\$ {
+        ${FASTCGI_PASS}
         fastcgi_param SCRIPT_FILENAME \$document_root\$fastcgi_script_name;
         include fastcgi_params;
     }
@@ -403,9 +746,9 @@ EOF
 set_permissions() {
     log_step "设置文件权限..."
 
-    chown -R www-data:www-data "$INSTALL_DIR" 2>/dev/null || chown -R nginx:nginx "$INSTALL_DIR"
+    chown -R www-data:www-data "$INSTALL_DIR" 2>/dev/null || chown -R nginx:nginx "$INSTALL_DIR" 2>/dev/null || true
     chmod -R 755 "$INSTALL_DIR"
-    chmod -R 775 "$INSTALL_DIR/data" 2>/dev/null || true
+    chmod 600 "$INSTALL_DIR/backend/core/db_config.php" 2>/dev/null || true
     
     log_info "文件权限设置完成"
 }
@@ -415,8 +758,8 @@ start_services() {
     log_step "启动服务..."
 
     # PHP-FPM
-    systemctl restart php${PHP_VERSION}-fpm 2>/dev/null || systemctl restart php-fpm
-    systemctl enable php${PHP_VERSION}-fpm 2>/dev/null || systemctl enable php-fpm
+    systemctl restart php${PHP_VERSION}-fpm 2>/dev/null || systemctl restart php-fpm 2>/dev/null || true
+    systemctl enable php${PHP_VERSION}-fpm 2>/dev/null || systemctl enable php-fpm 2>/dev/null || true
 
     # Nginx
     systemctl restart nginx
@@ -430,13 +773,13 @@ configure_firewall() {
     log_step "配置防火墙..."
 
     if command -v ufw &> /dev/null; then
-        ufw allow 80/tcp
-        ufw allow 443/tcp
+        ufw allow 80/tcp 2>/dev/null || true
+        ufw allow 443/tcp 2>/dev/null || true
         log_info "UFW防火墙已配置"
     elif command -v firewall-cmd &> /dev/null; then
-        firewall-cmd --permanent --add-service=http
-        firewall-cmd --permanent --add-service=https
-        firewall-cmd --reload
+        firewall-cmd --permanent --add-service=http 2>/dev/null || true
+        firewall-cmd --permanent --add-service=https 2>/dev/null || true
+        firewall-cmd --reload 2>/dev/null || true
         log_info "Firewalld已配置"
     fi
 }
@@ -504,11 +847,20 @@ show_help() {
     echo ""
     echo "选项:"
     echo "  -d, --domain DOMAIN    设置域名"
-    echo "  -h, --help            显示帮助信息"
+    echo "  -f, --force            强制重新安装所有组件（忽略环境检测）"
+    echo "  -h, --help             显示帮助信息"
+    echo ""
+    echo "环境要求:"
+    echo "  PHP     >= ${PHP_MIN_VERSION}"
+    echo "  MySQL   >= ${MYSQL_MIN_VERSION}"
+    echo "  Node.js >= v${NODE_MIN_VERSION}"
+    echo "  Nginx   (任意版本)"
     echo ""
     echo "示例:"
-    echo "  $0                    使用默认配置安装"
-    echo "  $0 -d example.com     设置域名为example.com"
+    echo "  $0                     智能检测环境，仅安装缺失组件"
+    echo "  $0 -d example.com      设置域名为example.com"
+    echo "  $0 -f                  强制重新安装所有组件"
+    echo "  $0 -f -d example.com   强制安装并设置域名"
 }
 
 # 解析参数
@@ -518,6 +870,14 @@ parse_args() {
             -d|--domain)
                 DOMAIN="$2"
                 shift 2
+                ;;
+            -f|--force)
+                FORCE_INSTALL=true
+                NEED_INSTALL_PHP=true
+                NEED_INSTALL_MYSQL=true
+                NEED_INSTALL_NGINX=true
+                NEED_INSTALL_NODE=true
+                shift
                 ;;
             -h|--help)
                 show_help
@@ -539,16 +899,29 @@ main() {
     echo ""
     echo "============================================================"
     echo -e "${BLUE}IP管理器 - Linux一键部署脚本${NC}"
+    echo -e "${CYAN}智能环境检测 | 版本验证 | 按需安装${NC}"
     echo "============================================================"
     echo ""
 
     check_root
     detect_os
 
-    # 根据系统类型安装
+    # 环境检测 (如果不是强制安装模式)
+    if $FORCE_INSTALL; then
+        echo ""
+        log_warn "⚠ 强制安装模式：将重新安装所有组件"
+        echo ""
+    else
+        check_environment
+    fi
+
+    # 根据系统类型执行安装
     case $OS in
         ubuntu|debian)
-            install_debian
+            # 如果有任何组件需要安装
+            if $NEED_INSTALL_PHP || $NEED_INSTALL_MYSQL || $NEED_INSTALL_NGINX || $NEED_INSTALL_NODE; then
+                install_debian
+            fi
             configure_mysql
             clone_project
             import_database
@@ -560,7 +933,10 @@ main() {
             configure_firewall
             ;;
         centos|rhel|rocky|almalinux)
-            install_centos
+            # 如果有任何组件需要安装
+            if $NEED_INSTALL_PHP || $NEED_INSTALL_MYSQL || $NEED_INSTALL_NGINX || $NEED_INSTALL_NODE; then
+                install_centos
+            fi
             configure_mysql
             clone_project
             import_database
