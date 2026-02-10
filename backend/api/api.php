@@ -1474,6 +1474,17 @@ switch ($action) {
             break;
         }
         
+        // 如果 Token 是掩码格式（以 ******** 开头），保留原来的值
+        if (strpos($apiToken, '********') === 0) {
+            $existingConfig = $db->getConfig('cloudflare', []);
+            if (!empty($existingConfig['api_token'])) {
+                $apiToken = $existingConfig['api_token'];
+            } else {
+                echo json_encode(['success' => false, 'message' => '请输入完整的 API Token']);
+                break;
+            }
+        }
+        
         // 验证 Token
         require_once __DIR__ . '/../core/cloudflare.php';
         $cf = new CloudflareService($apiToken, $accountId);
