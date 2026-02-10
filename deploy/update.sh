@@ -62,6 +62,44 @@ git reset --hard origin/master
 log_step "恢复配置文件..."
 cp -f /tmp/db_config.php.bak backend/core/db_config.php 2>/dev/null || true
 
+# 运行数据库迁移
+log_step "检查数据库迁移..."
+if [ -f "backend/core/db_config.php" ]; then
+    # 从配置文件提取数据库信息
+    DB_NAME=$(grep "DB_NAME" backend/core/db_config.php | sed "s/.*'\\([^']*\\)'.*/\\1/")
+    
+    # 检查 jump_rules 表是否存在
+    if ! mysql -e "SELECT 1 FROM ${DB_NAME}.jump_rules LIMIT 1" 2>/dev/null; then
+        log_info "运行跳转规则迁移..."
+        if [ -f "backend/migrations/merge_jump_rules.sql" ]; then
+            mysql "$DB_NAME" < backend/migrations/merge_jump_rules.sql
+        fi
+    fi
+    
+    # 检查 jump_domains 表是否存在
+    if ! mysql -e "SELECT 1 FROM ${DB_NAME}.jump_domains LIMIT 1" 2>/dev/null; then
+        log_info "创建 jump_domains 表..."
+        mysql "$DB_NAME" -e "
+        CREATE TABLE IF NOT EXISTS jump_domains (
+            id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+            domain VARCHAR(255) NOT NULL,
+            name VARCHAR(100) DEFAULT '',
+            is_default TINYINT(1) DEFAULT 0,
+            enabled TINYINT(1) DEFAULT 1,
+            use_count INT UNSIGNED DEFAULT 0,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE KEY uk_domain (domain)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+        "
+    fi
+    
+    # 检查 jump_rules.domain_id 字段是否存在
+    if ! mysql -e "SELECT domain_id FROM ${DB_NAME}.jump_rules LIMIT 1" 2>/dev/null; then
+        log_info "添加 domain_id 字段..."
+        mysql "$DB_NAME" -e "ALTER TABLE jump_rules ADD COLUMN domain_id INT UNSIGNED DEFAULT NULL AFTER group_tag;"
+    fi
+fi
+
 # 重新构建前端
 log_step "重新构建前端..."
 cd "$INSTALL_DIR/backend/frontend"

@@ -828,7 +828,7 @@ class JumpService {
      */
     public function getDashboardStats(?string $ruleType = null): array {
         $typeWhere = $ruleType ? " WHERE rule_type = '$ruleType'" : "";
-        $typeAnd = $ruleType ? " AND rule_type = '$ruleType'" : "";
+        $typeAnd = $ruleType ? " AND jr.rule_type = '$ruleType'" : "";
         
         $stats = [];
         
@@ -837,7 +837,8 @@ class JumpService {
         $stats['total_rules'] = (int)$stmt->fetchColumn();
         
         // 活跃规则数
-        $stmt = $this->pdo->query("SELECT COUNT(*) FROM jump_rules WHERE enabled = 1 $typeAnd");
+        $whereEnabled = $ruleType ? " WHERE enabled = 1 AND rule_type = '$ruleType'" : " WHERE enabled = 1";
+        $stmt = $this->pdo->query("SELECT COUNT(*) FROM jump_rules $whereEnabled");
         $stats['active_rules'] = (int)$stmt->fetchColumn();
         
         // 总点击量
@@ -847,7 +848,7 @@ class JumpService {
         // 今日点击
         $today = date('Y-m-d');
         $stmt = $this->pdo->prepare("
-            SELECT COALESCE(SUM(clicks), 0) 
+            SELECT COALESCE(SUM(jds.clicks), 0) 
             FROM jump_daily_stats jds
             JOIN jump_rules jr ON jds.rule_id = jr.id
             WHERE jds.stat_date = ? $typeAnd
@@ -857,7 +858,7 @@ class JumpService {
         
         // 今日UV
         $stmt = $this->pdo->prepare("
-            SELECT COALESCE(SUM(unique_visitors), 0) 
+            SELECT COALESCE(SUM(jds.unique_visitors), 0) 
             FROM jump_daily_stats jds
             JOIN jump_rules jr ON jds.rule_id = jr.id
             WHERE jds.stat_date = ? $typeAnd

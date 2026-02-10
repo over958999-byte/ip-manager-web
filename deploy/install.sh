@@ -510,7 +510,14 @@ import_database() {
     
     # 检查表是否已存在
     if mysql -e "SELECT 1 FROM ${DB_NAME}.config LIMIT 1" 2>/dev/null; then
-        log_info "数据库表已存在，跳过导入"
+        log_info "数据库表已存在，检查是否需要迁移..."
+        # 检查 jump_rules 表是否存在，不存在则运行迁移
+        if ! mysql -e "SELECT 1 FROM ${DB_NAME}.jump_rules LIMIT 1" 2>/dev/null; then
+            log_info "运行跳转规则迁移..."
+            if [ -f "backend/migrations/merge_jump_rules.sql" ]; then
+                mysql "$DB_NAME" < backend/migrations/merge_jump_rules.sql
+            fi
+        fi
         return
     fi
     
@@ -527,6 +534,11 @@ import_database() {
     # 导入短链接表
     if [ -f "backend/shortlink.sql" ]; then
         mysql "$DB_NAME" < backend/shortlink.sql
+    fi
+    
+    # 导入跳转规则迁移
+    if [ -f "backend/migrations/merge_jump_rules.sql" ]; then
+        mysql "$DB_NAME" < backend/migrations/merge_jump_rules.sql
     fi
 
     log_info "数据库导入完成"
