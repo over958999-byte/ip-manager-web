@@ -89,11 +89,34 @@ class CloudflareService {
     }
     
     /**
+     * 提取根域名（去掉 www 等常见子域名前缀）
+     */
+    private function extractRootDomain(string $domain): string {
+        // 移除协议前缀
+        $domain = preg_replace('#^https?://#i', '', $domain);
+        // 移除路径和端口
+        $domain = explode('/', $domain)[0];
+        $domain = explode(':', $domain)[0];
+        // 转小写并去除空格
+        $domain = strtolower(trim($domain));
+        
+        // 去掉 www 前缀
+        if (strpos($domain, 'www.') === 0) {
+            $domain = substr($domain, 4);
+        }
+        
+        return $domain;
+    }
+    
+    /**
      * 添加域名到 Cloudflare
      */
     public function addZone(string $domain): array {
+        // 自动提取根域名
+        $rootDomain = $this->extractRootDomain($domain);
+        
         $data = [
-            'name' => $domain,
+            'name' => $rootDomain,
             'account' => ['id' => $this->accountId],
             'jump_start' => true
         ];
@@ -105,7 +128,8 @@ class CloudflareService {
                 'success' => true,
                 'zone_id' => $result['result']['id'],
                 'name_servers' => $result['result']['name_servers'],
-                'status' => $result['result']['status']
+                'status' => $result['result']['status'],
+                'root_domain' => $rootDomain
             ];
         }
         
@@ -121,7 +145,9 @@ class CloudflareService {
      * 获取域名的 Zone ID
      */
     public function getZoneId(string $domain): ?string {
-        $result = $this->request('GET', '/zones?name=' . urlencode($domain));
+        // 自动提取根域名
+        $rootDomain = $this->extractRootDomain($domain);
+        $result = $this->request('GET', '/zones?name=' . urlencode($rootDomain));
         
         if (isset($result['success']) && $result['success'] && !empty($result['result'])) {
             return $result['result'][0]['id'];
