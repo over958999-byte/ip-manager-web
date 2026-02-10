@@ -26,10 +26,10 @@ const routes = [
         meta: { title: '跳转管理', icon: 'Promotion' }
       },
       {
-        path: 'ip-pool',
-        name: 'IpPool',
-        component: () => import('../views/IpPool.vue'),
-        meta: { title: 'IP池管理', icon: 'Coin' }
+        path: 'resource-pool',
+        name: 'ResourcePool',
+        component: () => import('../views/ResourcePool.vue'),
+        meta: { title: '资源池', icon: 'Coin' }
       },
       {
         path: 'antibot',

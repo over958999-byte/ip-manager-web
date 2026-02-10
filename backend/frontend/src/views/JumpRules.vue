@@ -69,9 +69,6 @@
           <el-button @click="showBatchDialog">
             <el-icon><DocumentAdd /></el-icon>批量添加
           </el-button>
-          <el-button @click="showDomainDialog">
-            <el-icon><Link /></el-icon>域名池管理
-          </el-button>
         </div>
         <div class="toolbar-right">
           <el-select v-model="filters.rule_type" placeholder="规则类型" clearable style="width: 120px" @change="loadData">
@@ -333,56 +330,6 @@
       </template>
     </el-dialog>
 
-    <!-- 域名池管理对话框 -->
-    <el-dialog v-model="domainDialog.visible" title="域名池管理" width="700px">
-      <div style="margin-bottom: 16px;">
-        <el-form :inline="true" :model="domainDialog.form">
-          <el-form-item label="域名">
-            <el-input v-model="domainDialog.form.domain" placeholder="如: s.example.com" style="width: 250px" />
-          </el-form-item>
-          <el-form-item label="名称">
-            <el-input v-model="domainDialog.form.name" placeholder="可选，便于识别" style="width: 120px" />
-          </el-form-item>
-          <el-form-item>
-            <el-checkbox v-model="domainDialog.form.is_default">设为默认</el-checkbox>
-          </el-form-item>
-          <el-form-item>
-            <el-button type="primary" @click="addDomainAction" :loading="domainDialog.loading">添加</el-button>
-          </el-form-item>
-        </el-form>
-      </div>
-      
-      <el-table :data="domains" stripe style="width: 100%">
-        <el-table-column label="域名" min-width="200">
-          <template #default="{ row }">
-            {{ row.domain.replace(/^https?:\/\//, '') }}
-          </template>
-        </el-table-column>
-        <el-table-column prop="name" label="名称" width="120" />
-        <el-table-column label="默认" width="80" align="center">
-          <template #default="{ row }">
-            <el-tag v-if="row.is_default" type="success" size="small">默认</el-tag>
-          </template>
-        </el-table-column>
-        <el-table-column label="状态" width="80" align="center">
-          <template #default="{ row }">
-            <el-switch v-model="row.enabled" :active-value="1" :inactive-value="0" @change="toggleDomainEnabled(row)" />
-          </template>
-        </el-table-column>
-        <el-table-column prop="use_count" label="使用数" width="80" align="center" />
-        <el-table-column label="操作" width="120" align="center">
-          <template #default="{ row }">
-            <el-button v-if="!row.is_default" link type="primary" size="small" @click="setDefaultDomain(row)">设默认</el-button>
-            <el-popconfirm v-if="!row.is_default" title="确定删除此域名吗？" @confirm="deleteDomainAction(row)">
-              <template #reference>
-                <el-button link type="danger" size="small">删除</el-button>
-              </template>
-            </el-popconfirm>
-          </template>
-        </el-table-column>
-      </el-table>
-    </el-dialog>
-
     <!-- 统计对话框 -->
     <el-dialog v-model="statsDialog.visible" :title="'统计详情 - ' + (statsDialog.rule?.match_key || '')" width="800px">
       <div v-loading="statsDialog.loading">
@@ -517,17 +464,6 @@ const batchDialog = reactive({
     items: '',
     target_url: '',
     domain_id: null
-  }
-})
-
-// 域名管理对话框
-const domainDialog = reactive({
-  visible: false,
-  loading: false,
-  form: {
-    domain: '',
-    name: '',
-    is_default: false
   }
 })
 
@@ -669,80 +605,6 @@ async function submitBatch() {
     ElMessage.error('请求失败')
   } finally {
     batchDialog.loading = false
-  }
-}
-
-// 域名池管理
-function showDomainDialog() {
-  domainDialog.form = { domain: '', name: '', is_default: false }
-  domainDialog.visible = true
-  loadDomains()
-}
-
-async function addDomainAction() {
-  if (!domainDialog.form.domain) {
-    ElMessage.warning('请输入域名')
-    return
-  }
-  
-  domainDialog.loading = true
-  try {
-    const res = await api.addDomain(domainDialog.form)
-    if (res.success) {
-      ElMessage.success('添加成功')
-      domainDialog.form = { domain: '', name: '', is_default: false }
-      loadDomains()
-    } else {
-      ElMessage.error(res.message || '添加失败')
-    }
-  } catch (e) {
-    ElMessage.error('请求失败')
-  } finally {
-    domainDialog.loading = false
-  }
-}
-
-async function toggleDomainEnabled(row) {
-  try {
-    const res = await api.updateDomain(row.id, { enabled: row.enabled })
-    if (!res.success) {
-      row.enabled = row.enabled ? 0 : 1
-      ElMessage.error(res.message || '操作失败')
-    }
-  } catch (e) {
-    row.enabled = row.enabled ? 0 : 1
-    ElMessage.error('请求失败')
-  }
-}
-
-async function setDefaultDomain(row) {
-  try {
-    const res = await api.updateDomain(row.id, { is_default: 1 })
-    if (res.success) {
-      // 更新本地状态
-      domains.value.forEach(d => {
-        d.is_default = d.id === row.id ? 1 : 0
-      })
-      ElMessage.success('已设为默认')
-    } else {
-      ElMessage.error(res.message || '操作失败')
-    }
-  } catch (e) {
-    ElMessage.error('请求失败')
-  }
-}
-
-async function deleteDomainAction(row) {
-  try {
-    const res = await api.deleteDomain(row.id)
-    if (res.success) {
-      ElMessage.success('删除成功')
-      loadDomains()
-    } else {
-      ElMessage.error(res.message || '删除失败')
-    }
-  } catch (e) {
-    ElMessage.error('请求失败')
   }
 }
 
