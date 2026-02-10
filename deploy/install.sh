@@ -21,10 +21,13 @@ REPO_URL="https://github.com/over958999-byte/ip-manager-web.git"
 DB_NAME="ip_manager"
 DB_USER="ip_manager"
 DB_PASS=$(openssl rand -base64 12)
-ADMIN_PASS=$(openssl rand -base64 8)
 DOMAIN=""
 PHP_VERSION="8.2"
 NODE_VERSION="20"
+
+# 默认后台账号密码
+ADMIN_USER="admin"
+ADMIN_PASS="admin123"
 
 # 日志函数
 log_info() {
@@ -440,21 +443,31 @@ configure_firewall() {
 
 # 打印安装信息
 print_info() {
+    # 获取服务器IP
+    SERVER_IP=$(hostname -I | awk '{print $1}')
+    SITE_HOST="${DOMAIN:-$SERVER_IP}"
+
     echo ""
     echo "============================================================"
-    echo -e "${GREEN}IP管理器部署完成！${NC}"
+    echo -e "${GREEN}  ✓ IP管理器部署完成！${NC}"
     echo "============================================================"
     echo ""
-    echo -e "安装目录:     ${BLUE}${INSTALL_DIR}${NC}"
-    echo -e "网站地址:     ${BLUE}http://${DOMAIN:-$(hostname -I | awk '{print $1}')}${NC}"
-    echo -e "管理后台:     ${BLUE}http://${DOMAIN:-$(hostname -I | awk '{print $1}')}/admin${NC}"
+    echo -e "${YELLOW}【后台管理信息】${NC}"
+    echo -e "  后台地址:   ${BLUE}http://${SITE_HOST}/admin${NC}"
+    echo -e "  账号:       ${BLUE}${ADMIN_USER}${NC}"
+    echo -e "  密码:       ${BLUE}${ADMIN_PASS}${NC}"
     echo ""
-    echo "数据库信息:"
+    echo -e "${YELLOW}【网站信息】${NC}"
+    echo -e "  安装目录:   ${BLUE}${INSTALL_DIR}${NC}"
+    echo -e "  网站地址:   ${BLUE}http://${SITE_HOST}${NC}"
+    echo ""
+    echo -e "${YELLOW}【数据库信息】${NC}"
     echo -e "  数据库名:   ${BLUE}${DB_NAME}${NC}"
     echo -e "  用户名:     ${BLUE}${DB_USER}${NC}"
     echo -e "  密码:       ${BLUE}${DB_PASS}${NC}"
     echo ""
     echo "============================================================"
+    echo -e "${RED}⚠ 请登录后台后立即修改默认密码！${NC}"
     echo -e "${YELLOW}请妥善保存以上信息！${NC}"
     echo "============================================================"
     echo ""
@@ -464,14 +477,22 @@ print_info() {
 IP管理器安装信息
 ================
 安装时间: $(date)
-安装目录: ${INSTALL_DIR}
-网站地址: http://${DOMAIN:-$(hostname -I | awk '{print $1}')}
-管理后台: http://${DOMAIN:-$(hostname -I | awk '{print $1}')}/admin
 
-数据库信息:
+【后台管理信息】
+  后台地址: http://${SITE_HOST}/admin
+  账号: ${ADMIN_USER}
+  密码: ${ADMIN_PASS}
+
+【网站信息】
+  安装目录: ${INSTALL_DIR}
+  网站地址: http://${SITE_HOST}
+
+【数据库信息】
   数据库名: ${DB_NAME}
   用户名: ${DB_USER}
   密码: ${DB_PASS}
+
+⚠ 请登录后台后立即修改默认密码！
 EOF
     chmod 600 "$INSTALL_DIR/install_info.txt"
     log_info "安装信息已保存到: ${INSTALL_DIR}/install_info.txt"
