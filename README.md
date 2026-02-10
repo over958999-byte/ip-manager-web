@@ -99,3 +99,121 @@ mysql -u root ip_manager < backend/init_config.sql
 2. 将 `backend/api/` 目录配置为后台 API 访问路径
 3. 构建前端：`cd backend/frontend && npm run build`
 4. 配置 Nginx 反向代理
+
+## 高并发优化
+
+本项目针对短链服务实现了完整的高并发解决方案：
+
+### 架构特性
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                      Nginx (限流层)                          │
+│  - 令牌桶限流 (30r/s per IP)                                 │
+│  - 全局限流 (5000r/s)                                        │
+│  - 连接数限制                                                │
+└─────────────────────────────────────────────────────────────┘
+                              ↓
+┌─────────────────────────────────────────────────────────────┐
+│                    PHP-FPM (高并发池)                        │
+│  - 50个静态进程                                              │
+│  - OPcache 字节码缓存                                        │
+│  - APCu 用户数据缓存                                         │
+└─────────────────────────────────────────────────────────────┘
+                              ↓
+┌─────────────────────────────────────────────────────────────┐
+│                   应用层 (多级保护)                          │
+│                                                              │
+│  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌──────────┐    │
+│  │ 缓存层    │  │ 限流器   │  │ 熔断器   │  │ 消息队列 │    │
+│  │          │  │          │  │          │  │          │    │
+│  │- 内存缓存 │  │- 令牌桶  │  │- 失败阈值 │  │- 异步日志 │    │
+│  │- APCu   │  │- 滑动窗口 │  │- 自动恢复 │  │- 批量写入 │    │
+│  │- 布隆过滤│  │- 固定窗口 │  │- 降级处理 │  │- 死信队列 │    │
+│  └──────────┘  └──────────┘  └──────────┘  └──────────┘    │
+│                                                              │
+└─────────────────────────────────────────────────────────────┘
+                              ↓
+┌─────────────────────────────────────────────────────────────┐
+│                     MySQL (数据层)                           │
+│  - 索引优化                                                  │
+│  - 连接池                                                    │
+│  - 异步写入                                                  │
+└─────────────────────────────────────────────────────────────┘
+```
+
+### 核心组件
+
+| 组件 | 文件 | 功能 |
+|------|------|------|
+| 缓存服务 | `backend/core/cache.php` | 多级缓存、布隆过滤器、防穿透/击穿/雪崩 |
+| 限流器 | `backend/core/rate_limiter.php` | 令牌桶、滑动窗口、漏桶限流 |
+| 熔断器 | `backend/core/circuit_breaker.php` | 服务熔断、自动恢复 |
+| 消息队列 | `backend/core/message_queue.php` | 异步任务、批量处理 |
+| 高性能入口 | `public/s.php` | 优化的短链跳转入口 |
+| 后台Worker | `public/worker.php` | 异步任务处理 |
+| 缓存预热 | `public/warmup.php` | 系统启动预热 |
+| 健康检查 | `public/health.php` | 系统监控接口 |
+
+### 缓存策略
+
+1. **防缓存穿透**：布隆过滤器 + 空值缓存
+2. **防缓存击穿**：分布式锁 + 互斥加载
+3. **防缓存雪崩**：随机TTL + 预热
+4. **缓存一致性**：延迟双删
+
+### 部署步骤
+
+```bash
+# 1. 运行数据库迁移
+mysql -u root ip_manager < backend/migrations/high_concurrency.sql
+
+# 2. 使用高性能Nginx配置
+sudo cp config/nginx-highperf.conf /etc/nginx/sites-available/ip-manager
+sudo nginx -t && sudo systemctl reload nginx
+
+# 3. 配置PHP-FPM
+sudo cp config/php-fpm-pool.conf /etc/php/8.2/fpm/pool.d/www.conf
+sudo systemctl restart php8.2-fpm
+
+# 4. 启用APCu扩展
+sudo apt install php8.2-apcu
+sudo systemctl restart php8.2-fpm
+
+# 5. 预热缓存
+php public/warmup.php
+
+# 6. 启动后台Worker（定时任务）
+echo "* * * * * php /var/www/ip-manager/public/worker.php" | crontab -
+```
+
+### 监控
+
+访问 `/health.php` 查看系统状态：
+
+```json
+{
+  "status": "healthy",
+  "components": {
+    "database": {"status": "healthy"},
+    "cache": {"status": "healthy", "apcu_enabled": true},
+    "rate_limiter": {"status": "healthy"},
+    "circuit_breaker": {"status": "healthy"}
+  },
+  "metrics": {
+    "cache_hit_rate": 95.5,
+    "queue_pending": 0,
+    "active_rules": 1000
+  }
+}
+```
+
+### 性能预期
+
+| 指标 | 数值 |
+|------|------|
+| 单机QPS | 5000+ |
+| 平均响应时间 | <10ms |
+| P99响应时间 | <50ms |
+| 缓存命中率 | >95% |
+

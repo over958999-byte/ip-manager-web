@@ -52,6 +52,13 @@ class Database {
         return $this->pdo;
     }
     
+    /**
+     * 获取数据库连接（getConnection 别名）
+     */
+    public function getConnection() {
+        return $this->pdo;
+    }
+    
     // ==================== 配置相关 ====================
     
     public function getConfig($key, $default = null) {
