@@ -99,20 +99,26 @@ version_compare() {
     if [ "$1" = "$2" ]; then
         return 0
     fi
-    local IFS=.
-    local i
-    local -a ver1=($1) ver2=($2)
-    for ((i=0; i<${#ver1[@]}; i++)); do
-        if [ -z "${ver2[i]}" ]; then
-            ver2[i]=0
-        fi
-        if ((10#${ver1[i]:-0} > 10#${ver2[i]:-0})); then
-            return 1
-        fi
-        if ((10#${ver1[i]:-0} < 10#${ver2[i]:-0})); then
-            return 2
-        fi
-    done
+    # 将版本号转换为数字进行比较
+    local v1_major=$(echo "$1" | cut -d. -f1)
+    local v1_minor=$(echo "$1" | cut -d. -f2)
+    local v2_major=$(echo "$2" | cut -d. -f1)
+    local v2_minor=$(echo "$2" | cut -d. -f2)
+    
+    v1_major=${v1_major:-0}
+    v1_minor=${v1_minor:-0}
+    v2_major=${v2_major:-0}
+    v2_minor=${v2_minor:-0}
+    
+    if [ "$v1_major" -gt "$v2_major" ]; then
+        return 1
+    elif [ "$v1_major" -lt "$v2_major" ]; then
+        return 2
+    elif [ "$v1_minor" -gt "$v2_minor" ]; then
+        return 1
+    elif [ "$v1_minor" -lt "$v2_minor" ]; then
+        return 2
+    fi
     return 0
 }
 
