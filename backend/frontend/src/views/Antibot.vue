@@ -323,18 +323,30 @@
           <template #header>
             <div style="display: flex; justify-content: space-between; align-items: center;">
               <span>恶意IP库统计</span>
-              <el-button type="primary" size="small" @click="showIpBlacklistDialog">管理IP库</el-button>
+              <div>
+                <el-button type="success" size="small" @click="syncThreatIntel" :loading="syncingThreatIntel">
+                  <el-icon><Download /></el-icon> 同步威胁情报
+                </el-button>
+                <el-button type="primary" size="small" @click="showIpBlacklistDialog">管理IP库</el-button>
+              </div>
             </div>
           </template>
-          <el-descriptions :column="1" size="small">
-            <el-descriptions-item label="总规则数">{{ ipBlacklistStats.total_rules || 0 }}</el-descriptions-item>
-            <el-descriptions-item label="总命中次数">{{ ipBlacklistStats.total_hits || 0 }}</el-descriptions-item>
+          <el-descriptions :column="2" size="small">
+            <el-descriptions-item label="总规则数">{{ formatNumber(ipBlacklistStats.total_rules || 0) }}</el-descriptions-item>
+            <el-descriptions-item label="总命中次数">{{ formatNumber(ipBlacklistStats.total_hits || 0) }}</el-descriptions-item>
           </el-descriptions>
           <div v-if="ipBlacklistStats.by_type?.length" style="margin-top: 10px;">
             <el-tag v-for="item in ipBlacklistStats.by_type" :key="item.type" 
                     :type="item.type === 'malicious' ? 'danger' : item.type === 'bot' ? 'warning' : 'info'"
                     style="margin: 2px;">
-              {{ typeLabels[item.type] || item.type }}: {{ item.count }}
+              {{ typeLabels[item.type] || item.type }}: {{ formatNumber(item.count) }}
+            </el-tag>
+          </div>
+          <div v-if="ipBlacklistStats.by_category?.length" style="margin-top: 10px;">
+            <div style="font-size: 12px; color: #909399; margin-bottom: 5px;">按来源分类 (TOP 10):</div>
+            <el-tag v-for="item in ipBlacklistStats.by_category?.slice(0, 10)" :key="item.category" 
+                    type="info" size="small" effect="plain" style="margin: 2px;">
+              {{ item.category }}: {{ formatNumber(item.count) }}
             </el-tag>
           </div>
         </el-card>
@@ -452,10 +464,11 @@
 <script setup>
 import { ref, reactive, computed, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
-import { Search, Plus, Refresh } from '@element-plus/icons-vue'
+import { Search, Plus, Refresh, Download } from '@element-plus/icons-vue'
 import api from '../api'
 
 const loading = ref(false)
+const syncingThreatIntel = ref(false)
 const stats = ref({})
 const blockedList = ref([])
 const logs = ref([])
@@ -600,8 +613,23 @@ const loadData = async () => {
       config.bad_ip_database = serverConfig.bad_ip_database || {}
       config.auto_blacklist = serverConfig.auto_blacklist || {}
     }
+    
+    // 自动加载IP黑名单统计
+    await loadIpBlacklistStats()
   } finally {
     loading.value = false
+  }
+}
+
+// 单独加载IP黑名单统计（不打开弹窗）
+const loadIpBlacklistStats = async () => {
+  try {
+    const res = await api.request('ip_blacklist_stats')
+    if (res.success) {
+      ipBlacklistStats.value = res.stats || {}
+    }
+  } catch (e) {
+    // 忽略错误
   }
 }
 
@@ -790,6 +818,37 @@ const checkIpInBlacklist = async () => {
   } else {
     ElMessage.error(res.message)
   }
+}
+
+// 同步威胁情报
+const syncThreatIntel = async () => {
+  syncingThreatIntel.value = true
+  try {
+    const res = await api.request('ip_blacklist_sync_threat_intel', { force: false })
+    if (res.success) {
+      ElMessage.success(res.message || '同步任务已启动')
+      // 30秒后刷新统计
+      setTimeout(() => {
+        loadIpBlacklistStats()
+      }, 30000)
+    } else {
+      ElMessage.error(res.message)
+    }
+  } finally {
+    syncingThreatIntel.value = false
+  }
+}
+
+// 格式化数字
+const formatNumber = (num) => {
+  if (!num) return '0'
+  if (num >= 1000000) {
+    return (num / 1000000).toFixed(1) + 'M'
+  }
+  if (num >= 1000) {
+    return (num / 1000).toFixed(1) + 'K'
+  }
+  return num.toString()
 }
 
 onMounted(() => {

@@ -2666,6 +2666,21 @@ switch ($action) {
     // IP黑名单库管理 API
     // =====================================================
     
+    case 'ip_blacklist_stats':
+        // 单独获取IP黑名单统计（用于页面自动加载）
+        if (!checkLogin()) {
+            echo json_encode(['success' => false, 'message' => '请先登录']);
+            exit;
+        }
+        require_once __DIR__ . '/../../public/ip_blacklist.php';
+        $ipBlacklist = IpBlacklist::getInstance();
+        
+        echo json_encode([
+            'success' => true,
+            'stats' => $ipBlacklist->getStats()
+        ]);
+        break;
+    
     case 'ip_blacklist_list':
         // 获取IP黑名单规则列表
         if (!checkLogin()) {
@@ -2836,6 +2851,50 @@ switch ($action) {
         require_once __DIR__ . '/../../public/ip_blacklist.php';
         IpBlacklist::refreshCache();
         echo json_encode(['success' => true, 'message' => '缓存已刷新']);
+        break;
+        
+    case 'ip_blacklist_sync_threat_intel':
+        // 同步威胁情报（从公开源获取恶意IP）
+        if (!checkLogin()) {
+            echo json_encode(['success' => false, 'message' => '请先登录']);
+            exit;
+        }
+        
+        // 后台异步执行
+        $forceUpdate = (bool)($input['force'] ?? false);
+        $scriptPath = __DIR__ . '/../cron/sync_threat_intel.php';
+        
+        if (!file_exists($scriptPath)) {
+            echo json_encode(['success' => false, 'message' => '同步脚本不存在']);
+            exit;
+        }
+        
+        // 检查是否正在运行
+        $lockFile = '/tmp/threat_intel_sync.lock';
+        if (file_exists($lockFile) && (time() - filemtime($lockFile)) < 300) {
+            echo json_encode(['success' => false, 'message' => '同步正在进行中，请稍后再试']);
+            exit;
+        }
+        
+        // 创建锁文件
+        touch($lockFile);
+        
+        // 后台执行同步
+        $cmd = PHP_BINARY . ' ' . escapeshellarg($scriptPath);
+        if ($forceUpdate) {
+            $cmd .= ' --force';
+        }
+        
+        if (strtoupper(substr(PHP_OS, 0, 3)) === 'WIN') {
+            pclose(popen("start /B " . $cmd, "r"));
+        } else {
+            exec($cmd . ' > /dev/null 2>&1 &');
+        }
+        
+        echo json_encode([
+            'success' => true, 
+            'message' => '威胁情报同步已启动，预计需要1-2分钟完成'
+        ]);
         break;
 
     // ==================== API Token 管理 ====================
