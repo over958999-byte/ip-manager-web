@@ -216,7 +216,7 @@ export const checkAllDomains = () => request.get('?action=domain_check_all')
 
 const api = {
   // 登录相关
-  login: (password) => request.post('?action=login', { password }),
+  login: (username, password) => request.post('?action=login', { username, password }),
   logout: () => request.post('?action=logout'),
   checkLogin: () => request.get('?action=check_login'),
   
@@ -319,5 +319,68 @@ export const domainSafetyCheck = (domain, domainId) => request.post('?action=dom
 export const domainSafetyCheckAll = () => request.post('?action=domain_safety_check_all')
 export const domainSafetyStats = () => request.get('?action=domain_safety_stats')
 export const domainSafetyLogs = (limit = 100) => request.get('?action=domain_safety_logs', { params: { limit } })
+
+// ==================== 数据大盘 API ====================
+export const getDashboardStats = () => request.get('?action=dashboard_stats')
+export const getTrendData = (range = '7d') => request.get('?action=dashboard_trend', { params: { range } })
+export const getRealtimeLogs = (limit = 20) => request.get('?action=realtime_logs', { params: { limit } })
+export const getSystemStatus = () => request.get('?action=system_status')
+
+// ==================== 批量导入导出 API ====================
+export const exportData = (type, format = 'csv', filters = {}) => 
+  request.post('?action=export_data', { type, format, filters }, { responseType: 'blob' })
+export const importData = (type, file) => {
+  const formData = new FormData()
+  formData.append('file', file)
+  formData.append('type', type)
+  return request.post('?action=import_data', formData, {
+    headers: { 'Content-Type': 'multipart/form-data' }
+  })
+}
+export const getExportTemplate = (type, format = 'csv') =>
+  request.get('?action=export_template', { params: { type, format }, responseType: 'blob' })
+
+// ==================== Webhook 管理 API ====================
+export const getWebhooks = () => request.get('?action=webhooks_list')
+export const createWebhook = (data) => request.post('?action=webhook_create', data)
+export const updateWebhook = (id, data) => request.post('?action=webhook_update', { id, ...data })
+export const deleteWebhook = (id) => request.post('?action=webhook_delete', { id })
+export const testWebhook = (id) => request.post('?action=webhook_test', { id })
+export const getWebhookLogs = (webhookId, limit = 50) => 
+  request.get('?action=webhook_logs', { params: { webhook_id: webhookId, limit } })
+
+// ==================== 审计日志 API ====================
+export const getAuditLogs = (params = {}) => request.get('?action=audit_logs', { params })
+export const exportAuditLogs = (params = {}) => 
+  request.post('?action=audit_logs_export', params, { responseType: 'blob' })
+
+// ==================== 用户管理 API ====================
+export const getUsers = () => request.get('?action=users_list')
+export const createUser = (data) => request.post('?action=user_create', data)
+export const updateUser = (id, data) => request.post('?action=user_update', { id, ...data })
+export const deleteUser = (id) => request.post('?action=user_delete', { id })
+export const resetUserPassword = (id) => request.post('?action=user_reset_password', { id })
+
+// ==================== TOTP 双因素认证 API ====================
+export const getTotpStatus = () => request.get('?action=totp_status')
+export const enableTotp = () => request.post('?action=totp_enable')
+export const verifyTotp = (code) => request.post('?action=totp_verify', { code })
+export const disableTotp = (code) => request.post('?action=totp_disable', { code })
+
+// ==================== API Key 管理 ====================
+export const getApiKeys = () => request.get('?action=api_keys_list')
+export const createApiKey = (data) => request.post('?action=api_key_create', data)
+export const updateApiKey = (id, data) => request.post('?action=api_key_update', { id, ...data })
+export const deleteApiKey = (id) => request.post('?action=api_key_delete', { id })
+export const regenerateApiKey = (id) => request.post('?action=api_key_regenerate', { id })
+
+// ==================== 备份管理 API ====================
+export const getBackupList = () => request.get('?action=backup_list')
+export const createBackup = (uploadToCloud = true) => 
+  request.post('?action=backup_create', { upload_to_cloud: uploadToCloud })
+export const restoreBackup = (filename) => request.post('?action=backup_restore', { filename })
+export const downloadBackup = (filename) => 
+  request.get('?action=backup_download', { params: { filename }, responseType: 'blob' })
+export const deleteBackup = (filename) => request.post('?action=backup_delete', { filename })
 
 export default api

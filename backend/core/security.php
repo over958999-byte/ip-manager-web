@@ -1,11 +1,12 @@
 <?php
 /**
  * 安全模块
- * 密码哈希、CSRF防护、Session安全
+ * 密码哈希、CSRF防护、Session安全、登录锁定、TOTP双因素认证
  */
 
 class Security {
     private static $instance = null;
+    private $db = null;
     
     // CSRF Token 有效期（秒）
     const CSRF_TOKEN_LIFETIME = 3600;
@@ -14,9 +15,25 @@ class Security {
     const PASSWORD_ALGO = PASSWORD_BCRYPT;
     const PASSWORD_OPTIONS = ['cost' => 12];
     
+    // 登录锁定配置
+    const MAX_LOGIN_ATTEMPTS = 5;      // 最大失败次数
+    const LOCKOUT_DURATION = 900;       // 锁定时长（秒）= 15分钟
+    const ATTEMPT_WINDOW = 300;         // 计算失败次数的时间窗口（秒）= 5分钟
+    
+    // TOTP 配置
+    const TOTP_ISSUER = 'IP管理器';
+    const TOTP_DIGITS = 6;
+    const TOTP_PERIOD = 30;
+    const TOTP_ALGORITHM = 'sha1';
+    
     private function __construct() {
         // 配置安全的 session
         $this->configureSession();
+        
+        // 获取数据库实例
+        if (class_exists('Database')) {
+            $this->db = Database::getInstance();
+        }
     }
     
     public static function getInstance(): self {
@@ -282,5 +299,284 @@ class Security {
             $input = str_ireplace($kw, '', $input);
         }
         return $input;
+    }
+    
+    // ==================== 登录失败锁定 ====================
+    
+    /**
+     * 检查 IP 是否被锁定
+     */
+    public function isIpLocked(string $ip): bool {
+        if (!$this->db) return false;
+        
+        try {
+            $pdo = $this->db->getPdo();
+            $stmt = $pdo->prepare(
+                "SELECT locked_until FROM login_attempts 
+                 WHERE ip = ? AND locked_until > NOW() 
+                 LIMIT 1"
+            );
+            $stmt->execute([$ip]);
+            $row = $stmt->fetch();
+            
+            return $row !== false;
+        } catch (Exception $e) {
+            return false;
+        }
+    }
+    
+    /**
+     * 获取 IP 锁定剩余时间（秒）
+     */
+    public function getLockoutRemaining(string $ip): int {
+        if (!$this->db) return 0;
+        
+        try {
+            $pdo = $this->db->getPdo();
+            $stmt = $pdo->prepare(
+                "SELECT TIMESTAMPDIFF(SECOND, NOW(), locked_until) as remaining 
+                 FROM login_attempts 
+                 WHERE ip = ? AND locked_until > NOW() 
+                 LIMIT 1"
+            );
+            $stmt->execute([$ip]);
+            $row = $stmt->fetch();
+            
+            return $row ? max(0, (int)$row['remaining']) : 0;
+        } catch (Exception $e) {
+            return 0;
+        }
+    }
+    
+    /**
+     * 记录登录失败
+     */
+    public function recordLoginFailure(string $ip): array {
+        if (!$this->db) {
+            return ['locked' => false, 'attempts' => 0, 'remaining' => 0];
+        }
+        
+        try {
+            $pdo = $this->db->getPdo();
+            
+            // 清理过期的记录
+            $pdo->exec("DELETE FROM login_attempts WHERE locked_until IS NOT NULL AND locked_until < NOW()");
+            
+            // 获取当前失败次数
+            $stmt = $pdo->prepare(
+                "SELECT COUNT(*) as cnt FROM login_attempts 
+                 WHERE ip = ? AND created_at > DATE_SUB(NOW(), INTERVAL ? SECOND)
+                 AND locked_until IS NULL"
+            );
+            $stmt->execute([$ip, self::ATTEMPT_WINDOW]);
+            $count = (int)$stmt->fetchColumn();
+            
+            // 记录本次失败
+            $stmt = $pdo->prepare(
+                "INSERT INTO login_attempts (ip, created_at) VALUES (?, NOW())"
+            );
+            $stmt->execute([$ip]);
+            
+            $attempts = $count + 1;
+            
+            // 检查是否需要锁定
+            if ($attempts >= self::MAX_LOGIN_ATTEMPTS) {
+                $stmt = $pdo->prepare(
+                    "UPDATE login_attempts SET locked_until = DATE_ADD(NOW(), INTERVAL ? SECOND) 
+                     WHERE ip = ? AND locked_until IS NULL"
+                );
+                $stmt->execute([self::LOCKOUT_DURATION, $ip]);
+                
+                // 记录安全日志
+                if (class_exists('Logger')) {
+                    Logger::logSecurityEvent('IP被锁定', [
+                        'ip' => $ip,
+                        'attempts' => $attempts,
+                        'duration' => self::LOCKOUT_DURATION
+                    ]);
+                }
+                
+                return [
+                    'locked' => true,
+                    'attempts' => $attempts,
+                    'remaining' => self::LOCKOUT_DURATION
+                ];
+            }
+            
+            return [
+                'locked' => false,
+                'attempts' => $attempts,
+                'remaining' => 0,
+                'max_attempts' => self::MAX_LOGIN_ATTEMPTS
+            ];
+        } catch (Exception $e) {
+            return ['locked' => false, 'attempts' => 0, 'remaining' => 0];
+        }
+    }
+    
+    /**
+     * 登录成功后清除失败记录
+     */
+    public function clearLoginFailures(string $ip): void {
+        if (!$this->db) return;
+        
+        try {
+            $pdo = $this->db->getPdo();
+            $stmt = $pdo->prepare("DELETE FROM login_attempts WHERE ip = ?");
+            $stmt->execute([$ip]);
+        } catch (Exception $e) {
+            // 忽略错误
+        }
+    }
+    
+    // ==================== TOTP 双因素认证 ====================
+    
+    /**
+     * 生成 TOTP 密钥
+     */
+    public function generateTotpSecret(): string {
+        $chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
+        $secret = '';
+        for ($i = 0; $i < 16; $i++) {
+            $secret .= $chars[random_int(0, 31)];
+        }
+        return $secret;
+    }
+    
+    /**
+     * 生成 TOTP 配置 URI（用于二维码）
+     */
+    public function getTotpUri(string $secret, string $account = 'admin'): string {
+        $issuer = urlencode(self::TOTP_ISSUER);
+        $account = urlencode($account);
+        return "otpauth://totp/{$issuer}:{$account}?secret={$secret}&issuer={$issuer}&algorithm=" . 
+               strtoupper(self::TOTP_ALGORITHM) . "&digits=" . self::TOTP_DIGITS . "&period=" . self::TOTP_PERIOD;
+    }
+    
+    /**
+     * 验证 TOTP 代码
+     */
+    public function verifyTotp(string $secret, string $code, int $window = 1): bool {
+        $code = preg_replace('/\s+/', '', $code);
+        if (strlen($code) !== self::TOTP_DIGITS) {
+            return false;
+        }
+        
+        $timestamp = time();
+        
+        // 检查当前时间窗口和前后窗口
+        for ($i = -$window; $i <= $window; $i++) {
+            $checkTime = $timestamp + ($i * self::TOTP_PERIOD);
+            $expectedCode = $this->generateTotpCode($secret, $checkTime);
+            if (hash_equals($expectedCode, $code)) {
+                return true;
+            }
+        }
+        
+        return false;
+    }
+    
+    /**
+     * 生成当前 TOTP 代码
+     */
+    public function generateTotpCode(string $secret, ?int $timestamp = null): string {
+        $timestamp = $timestamp ?? time();
+        $counter = floor($timestamp / self::TOTP_PERIOD);
+        
+        // Base32 解码
+        $secretKey = $this->base32Decode($secret);
+        
+        // 计算 HMAC
+        $counterBytes = pack('N*', 0) . pack('N*', $counter);
+        $hash = hash_hmac(self::TOTP_ALGORITHM, $counterBytes, $secretKey, true);
+        
+        // 动态截断
+        $offset = ord($hash[strlen($hash) - 1]) & 0x0F;
+        $binary = ((ord($hash[$offset]) & 0x7F) << 24) |
+                  ((ord($hash[$offset + 1]) & 0xFF) << 16) |
+                  ((ord($hash[$offset + 2]) & 0xFF) << 8) |
+                  (ord($hash[$offset + 3]) & 0xFF);
+        
+        $otp = $binary % pow(10, self::TOTP_DIGITS);
+        
+        return str_pad((string)$otp, self::TOTP_DIGITS, '0', STR_PAD_LEFT);
+    }
+    
+    /**
+     * Base32 解码
+     */
+    private function base32Decode(string $input): string {
+        $alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
+        $output = '';
+        $v = 0;
+        $vbits = 0;
+        
+        for ($i = 0, $j = strlen($input); $i < $j; $i++) {
+            $v <<= 5;
+            if ($input[$i] === '=') continue;
+            $v += strpos($alphabet, strtoupper($input[$i]));
+            $vbits += 5;
+            
+            if ($vbits >= 8) {
+                $vbits -= 8;
+                $output .= chr(($v >> $vbits) & 0xFF);
+            }
+        }
+        
+        return $output;
+    }
+    
+    /**
+     * 检查是否启用了 TOTP
+     */
+    public function isTotpEnabled(): bool {
+        if (!$this->db) return false;
+        
+        $secret = $this->db->getConfig('totp_secret', '');
+        $enabled = $this->db->getConfig('totp_enabled', false);
+        
+        return !empty($secret) && $enabled;
+    }
+    
+    /**
+     * 启用 TOTP
+     */
+    public function enableTotp(string $secret, string $code): bool {
+        // 验证代码
+        if (!$this->verifyTotp($secret, $code)) {
+            return false;
+        }
+        
+        if ($this->db) {
+            $this->db->setConfig('totp_secret', $secret);
+            $this->db->setConfig('totp_enabled', true);
+            
+            if (class_exists('Logger')) {
+                Logger::logSecurityEvent('TOTP双因素认证已启用');
+            }
+        }
+        
+        return true;
+    }
+    
+    /**
+     * 禁用 TOTP
+     */
+    public function disableTotp(): void {
+        if ($this->db) {
+            $this->db->setConfig('totp_enabled', false);
+            
+            if (class_exists('Logger')) {
+                Logger::logSecurityEvent('TOTP双因素认证已禁用');
+            }
+        }
+    }
+    
+    /**
+     * 获取 TOTP 密钥
+     */
+    public function getTotpSecret(): string {
+        if (!$this->db) return '';
+        return $this->db->getConfig('totp_secret', '');
     }
 }

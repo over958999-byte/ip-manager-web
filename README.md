@@ -1,103 +1,188 @@
-# IP管理器网页版
+# 困King分发平台
 
-## 项目结构
+## 🎯 项目简介
+
+高性能、企业级的 IP 跳转管理系统，支持智能流量分发、反爬虫防护、域名安全检测等功能。
+
+## ✨ V2.0 新特性
+
+### 🔐 安全增强
+- **登录失败锁定** - IP 连续失败 5 次后锁定 15 分钟
+- **TOTP 双因素认证** - 兼容 Google Authenticator
+- **操作审计日志** - 完整记录所有管理操作
+- **多用户权限** - 支持 Admin/Operator/Viewer 三种角色
+- **API Key 管理** - 支持细粒度权限控制和速率限制
+
+### 🚀 性能优化
+- **Redis 缓存** - 支持 APCu 降级，分布式部署友好
+- **数据库读写分离** - 支持 Master-Slave 集群
+- **Prometheus 监控** - 标准 `/metrics` 端点
+
+### 📊 功能扩展
+- **数据可视化大盘** - ECharts 图表展示
+- **批量导入导出** - 支持 CSV/Excel/JSON
+- **Webhook 通知** - 支持企业微信/钉钉/飞书/Slack
+- **自动备份** - 支持阿里云OSS/腾讯云COS/AWS S3
+
+### 🐳 DevOps
+- **Docker 容器化** - 一键部署完整服务栈
+- **蓝绿部署** - 零停机更新
+- **Grafana 监控** - 预置监控大盘
+
+## 📁 项目结构
 
 ```
 IP管理器网页版后台/
-│
-├── backend/                    # 后端 - 管理后台
-│   ├── api/                    # API接口
-│   │   └── api.php            # 后台管理API
-│   ├── core/                   # 核心类库
-│   │   └── database.php       # 数据库操作类
-│   ├── frontend/              # Vue前端（管理界面）
-│   │   ├── src/               # 源代码
-│   │   ├── package.json       # 依赖配置
-│   │   └── vite.config.js     # Vite配置
-│   ├── database.sql           # 数据库结构
-│   └── init_config.sql        # 初始化配置
-│
-├── public/                     # 前端 - 用户访问入口
-│   ├── index.php              # IP跳转主入口
-│   ├── antibot.php            # 反爬虫防护系统
-│   └── bad_ips.php            # 恶意IP数据库
-│
-├── config/                     # 配置文件
-│   ├── config.json            # 主配置（已废弃，使用数据库）
-│   ├── global.json            # 全局配置
-│   └── *.conf                 # Nginx配置模板
-│
-├── data/                       # 数据文件
-│   ├── antibot_data.json      # 反爬虫数据（已废弃）
-│   ├── stats.json             # 统计数据（已废弃）
-│   └── ip_list.txt            # IP列表
-│
-├── backup/                     # 备份文件
-│   ├── api_old.php            # 旧API备份
-│   ├── antibot_old.php        # 旧反爬虫备份
-│   └── index_old.php          # 旧入口备份
-│
-├── deploy/                     # 部署相关
-│   ├── start_dev.bat          # 开发环境启动脚本
-│   ├── deploy.bat             # 部署脚本
-│   ├── docker-compose-php.yml # Docker配置
-│   └── iptest.php             # 测试脚本
-│
-└── dist/                       # 前端构建输出
+├── backend/                    # 后端核心
+│   ├── api/api.php            # API 入口
+│   ├── core/                   # 核心模块
+│   │   ├── database.php       # 数据库基础
+│   │   ├── database_cluster.php # 读写分离
+│   │   ├── security.php       # 安全模块
+│   │   ├── audit.php          # 审计日志
+│   │   ├── redis.php          # Redis 缓存
+│   │   ├── webhook.php        # Webhook 通知
+│   │   ├── backup.php         # 备份服务
+│   │   ├── prometheus.php     # Prometheus 指标
+│   │   └── import_export.php  # 导入导出
+│   ├── cron/                   # 定时任务
+│   ├── frontend/              # Vue 管理界面
+│   ├── install.sql            # 数据库初始化
+│   └── migrate_v2.sql         # V2.0 迁移脚本
+├── public/                     # Web 入口
+│   ├── index.php              # 跳转入口
+│   ├── antibot.php            # 反爬验证
+│   ├── health.php             # 健康检查
+│   └── metrics.php            # Prometheus 端点
+├── deploy/                     # 部署配置
+│   ├── docker/                # Docker 配置
+│   ├── blue-green.sh          # 蓝绿部署脚本
+│   └── ...
+├── Dockerfile                  # 镜像构建
+├── docker-compose.yml          # 完整服务栈
+└── .env.example               # 环境变量模板
 ```
 
-## 概念说明
+## 🚀 快速开始
 
-- **后端（backend）**：管理后台系统
-  - 包括 Vue 管理界面和 PHP API
-  - 用于管理员配置 IP 跳转规则、查看统计、管理反爬虫等
+### Docker 部署（推荐）
 
-- **前端（public）**：用户访问入口
-  - 处理用户的 IP 访问请求
-  - 执行跳转逻辑和反爬虫检测
-  - 这是真实用户访问的入口点
+```bash
+# 1. 复制环境变量
+cp .env.example .env
 
-## 快速开始
+# 2. 修改配置（重要！）
+vim .env  # 修改密码、密钥等
+
+# 3. 启动服务
+docker compose up -d
+
+# 4. 访问管理后台
+open http://localhost:80
+```
+
+### 手动部署
+
+```bash
+# 1. 安装依赖
+cd backend/frontend && npm install
+
+# 2. 构建前端
+npm run build
+
+# 3. 导入数据库
+mysql -u root -p ip_manager < backend/install.sql
+mysql -u root -p ip_manager < backend/migrate_v2.sql
+
+# 4. 配置 Nginx（参考 config/*.conf）
+```
 
 ### 开发环境
 
-1. 双击 `deploy/start_dev.bat` 启动开发服务器
-
-或手动启动：
-
 ```bash
-# 启动 PHP 服务器（在项目根目录）
-php -S localhost:8080
+# Windows
+deploy\start_dev.bat
 
-# 启动前端开发服务器（在 backend/frontend 目录）
-cd backend/frontend
-npm run dev
+# 或手动启动
+php -S localhost:8080            # PHP 服务
+cd backend/frontend && npm run dev  # Vue 开发
 ```
 
-### 访问地址
+## 🔧 配置说明
 
-- **管理后台**: http://localhost:3000
-- **PHP 服务**: http://localhost:8080
-- **用户入口**: http://localhost:8080/public/
-- **默认密码**: admin123
+### 环境变量
 
-## 数据库
+| 变量 | 说明 | 默认值 |
+|------|------|--------|
+| `ADMIN_USER` | 管理员用户名 | admin |
+| `ADMIN_PASS` | 管理员密码 | admin123 |
+| `JWT_SECRET` | JWT 密钥 | (必须修改) |
+| `DB_HOST` | 数据库地址 | mysql |
+| `REDIS_HOST` | Redis 地址 | redis |
+| `BACKUP_CLOUD_PROVIDER` | 云存储类型 | (可选) |
 
-项目使用 MySQL 8.4 存储数据。
+### V2.0 数据库迁移
 
 ```bash
-# 导入数据库结构
-mysql -u root ip_manager < backend/database.sql
-
-# 导入初始配置
-mysql -u root ip_manager < backend/init_config.sql
+# 从 V1.x 升级
+mysql -u root -p ip_manager < backend/migrate_v2.sql
 ```
 
-## 生产部署
+## 📡 API 端点
 
-1. 将 `public/` 目录配置为 Web 服务器根目录
-2. 将 `backend/api/` 目录配置为后台 API 访问路径
-3. 构建前端：`cd backend/frontend && npm run build`
+### Prometheus 指标
+```
+GET /metrics.php
+Authorization: Bearer <token>  # 可选
+```
+
+### 健康检查
+```
+GET /health.php
+```
+
+## 📊 监控告警
+
+### Grafana 访问
+- URL: `http://localhost:3000`
+- 默认账号: admin/admin123
+
+### Webhook 告警
+支持推送到以下平台：
+- 企业微信
+- 钉钉（支持签名验证）
+- 飞书
+- Slack
+- 自定义 HTTP
+
+## 🔐 安全建议
+
+1. **生产环境必须修改** `JWT_SECRET`
+2. 启用 TOTP 双因素认证
+3. 配置 IP 白名单访问管理后台
+4. 定期备份并验证恢复流程
+5. 启用 HTTPS
+
+## 📝 更新日志
+
+### V2.0.0 (2024-xx-xx)
+- 新增：登录失败锁定机制
+- 新增：TOTP 双因素认证
+- 新增：操作审计日志
+- 新增：Redis 缓存支持
+- 新增：数据库读写分离
+- 新增：Webhook 多平台通知
+- 新增：自动备份（支持云存储）
+- 新增：Prometheus 监控指标
+- 新增：批量导入导出
+- 新增：Docker 容器化部署
+- 新增：蓝绿部署支持
+- 新增：数据可视化大盘
+- 优化：整体架构重构
+
+## 📄 License
+
+MIT License
 4. 配置 Nginx 反向代理
 
 ## 高并发优化

@@ -48,6 +48,36 @@ const routes = [
         name: 'Settings',
         component: () => import('../views/Settings.vue'),
         meta: { title: '系统设置', icon: 'Setting' }
+      },
+      {
+        path: 'data-dashboard',
+        name: 'DataDashboard',
+        component: () => import('../views/DataDashboard.vue'),
+        meta: { title: '数据大盘', icon: 'DataAnalysis' }
+      },
+      {
+        path: 'audit-logs',
+        name: 'AuditLogs',
+        component: () => import('../views/AuditLogs.vue'),
+        meta: { title: '审计日志', icon: 'Document' }
+      },
+      {
+        path: 'webhooks',
+        name: 'Webhooks',
+        component: () => import('../views/Webhooks.vue'),
+        meta: { title: 'Webhook管理', icon: 'Bell' }
+      },
+      {
+        path: 'users',
+        name: 'Users',
+        component: () => import('../views/Users.vue'),
+        meta: { title: '用户管理', icon: 'User', roles: ['admin'] }
+      },
+      {
+        path: 'backups',
+        name: 'Backups',
+        component: () => import('../views/Backups.vue'),
+        meta: { title: '备份管理', icon: 'FolderOpened' }
       }
     ]
   }
@@ -60,7 +90,7 @@ const router = createRouter({
 
 // 路由守卫
 router.beforeEach(async (to, from, next) => {
-  document.title = `${to.meta.title || 'IP管理'} - IP跳转管理后台`
+  document.title = `${to.meta.title || '首页'} - 困King分发平台`
   
   const userStore = useUserStore()
   
