@@ -12,7 +12,11 @@ const request = axios.create({
 request.interceptors.response.use(
   response => response.data,
   error => {
-    ElMessage.error(error.message || '请求失败')
+    const message =
+      error?.response?.data?.message ||
+      error?.message ||
+      '请求失败'
+    ElMessage.error(message)
     return Promise.reject(error)
   }
 )

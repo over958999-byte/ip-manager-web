@@ -25,7 +25,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
 header('Content-Type: application/json; charset=utf-8');
 
 // 获取数据库实例
-$db = Database::getInstance();
+try {
+    $db = Database::getInstance();
+} catch (Throwable $e) {
+    // 避免直接 500 导致前端只显示“Request failed with status code 500”
+    http_response_code(200);
+    echo json_encode([
+        'success' => false,
+        'message' => '数据库连接失败或未初始化，请检查 MySQL 连接与数据库导入（backend/database.sql, backend/init_config.sql）。',
+        'detail' => $e->getMessage()
+    ], JSON_UNESCAPED_UNICODE);
+    exit;
+}
 
 // 获取客户端真实IP
 function getClientIp() {
