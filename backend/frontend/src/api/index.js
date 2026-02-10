@@ -131,10 +131,26 @@ const api = {
   // 系统更新
   checkUpdate: () => request.get('?action=system_check_update'),
   doUpdate: () => request.post('?action=system_update'),
-  getSystemInfo: () => request.get('?action=system_info')
+  getSystemInfo: () => request.get('?action=system_info'),
+  
+  // Cloudflare API
+  cfGetConfig: () => request.get('?action=cf_get_config'),
+  cfSaveConfig: (data) => request.post('?action=cf_save_config', data),
+  cfListZones: () => request.get('?action=cf_list_zones'),
+  cfAddDomain: (data) => request.post('?action=cf_add_domain', data),
+  cfBatchAddDomains: (data) => request.post('?action=cf_batch_add_domains', data),
+  cfEnableHttps: (domain) => request.post('?action=cf_enable_https', { domain })
 }
 
 // 导出 getAntibotStats 供 Dashboard 使用
 export const getAntibotStats = () => request.get('?action=get_antibot_stats')
+
+// Cloudflare API 导出
+export const cfGetConfig = () => request.get('?action=cf_get_config')
+export const cfSaveConfig = (data) => request.post('?action=cf_save_config', data)
+export const cfListZones = () => request.get('?action=cf_list_zones')
+export const cfAddDomain = (data) => request.post('?action=cf_add_domain', data)
+export const cfBatchAddDomains = (data) => request.post('?action=cf_batch_add_domains', data)
+export const cfEnableHttps = (domain) => request.post('?action=cf_enable_https', { domain })
 
 export default api

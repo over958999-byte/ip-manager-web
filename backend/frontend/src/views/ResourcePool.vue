@@ -195,6 +195,83 @@
           </el-col>
         </el-row>
       </el-tab-pane>
+
+      <!-- Cloudflare 标签页 -->
+      <el-tab-pane label="Cloudflare" name="cloudflare">
+        <div class="tab-header">
+          <span class="tab-title">Cloudflare 域名管理</span>
+          <div class="tab-actions">
+            <el-button size="small" @click="showCfConfigDialog">
+              <el-icon><Setting /></el-icon> API配置
+            </el-button>
+            <el-button type="primary" size="small" @click="showCfAddDialog" :disabled="!cfConfigured">
+              <el-icon><Plus /></el-icon> 添加域名
+            </el-button>
+            <el-button size="small" @click="showCfBatchDialog" :disabled="!cfConfigured">
+              <el-icon><Upload /></el-icon> 批量添加
+            </el-button>
+          </div>
+        </div>
+        
+        <el-row :gutter="20">
+          <el-col :span="16">
+            <el-alert v-if="!cfConfigured" type="warning" :closable="false" style="margin-bottom: 16px;">
+              请先配置 Cloudflare API Token 和 Account ID
+            </el-alert>
+            
+            <el-table :data="cfZones" v-loading="loading.cf" stripe style="width: 100%">
+              <el-table-column prop="name" label="域名" min-width="180" />
+              <el-table-column label="状态" width="100">
+                <template #default="{ row }">
+                  <el-tag :type="row.status === 'active' ? 'success' : 'warning'" size="small">
+                    {{ row.status === 'active' ? '活跃' : row.status }}
+                  </el-tag>
+                </template>
+              </el-table-column>
+              <el-table-column label="NS服务器" min-width="200">
+                <template #default="{ row }">
+                  <div v-if="row.name_servers" style="font-size: 12px; color: #909399;">
+                    {{ row.name_servers.join(', ') }}
+                  </div>
+                </template>
+              </el-table-column>
+              <el-table-column label="操作" width="150" align="center">
+                <template #default="{ row }">
+                  <el-button link type="primary" size="small" @click="cfEnableHttps(row.name)">开启HTTPS</el-button>
+                  <el-button link type="success" size="small" @click="cfAddToPool(row.name)">加入域名池</el-button>
+                </template>
+              </el-table-column>
+            </el-table>
+          </el-col>
+          
+          <el-col :span="8">
+            <el-card shadow="never">
+              <template #header>Cloudflare 配置状态</template>
+              <div class="cf-status">
+                <p><strong>状态：</strong>
+                  <el-tag :type="cfConfigured ? 'success' : 'danger'" size="small">
+                    {{ cfConfigured ? '已配置' : '未配置' }}
+                  </el-tag>
+                </p>
+                <p v-if="cfConfig.api_token"><strong>Token：</strong>{{ cfConfig.api_token }}</p>
+                <p v-if="cfConfig.account_id"><strong>Account ID：</strong>{{ cfConfig.account_id }}</p>
+                <p v-if="cfConfig.default_server_ip"><strong>默认服务器IP：</strong>{{ cfConfig.default_server_ip }}</p>
+              </div>
+            </el-card>
+            <el-card shadow="never" style="margin-top: 16px;">
+              <template #header>功能说明</template>
+              <div class="tips">
+                <p>• 一键添加域名到 Cloudflare</p>
+                <p>• 自动添加 A 记录（@ 和 www）</p>
+                <p>• 自动开启 CDN 代理</p>
+                <p>• 自动开启 HTTPS（Full 模式）</p>
+                <p>• 自动开启始终使用 HTTPS</p>
+                <p>• 可选添加到本地域名池</p>
+              </div>
+            </el-card>
+          </el-col>
+        </el-row>
+      </el-tab-pane>
     </el-tabs>
 
     <!-- IP激活对话框 -->
@@ -250,6 +327,96 @@
         <el-button type="primary" @click="submitDomainEdit" :loading="submitting">确定</el-button>
       </template>
     </el-dialog>
+
+    <!-- Cloudflare 配置对话框 -->
+    <el-dialog v-model="cfConfigDialog.visible" title="Cloudflare API 配置" width="500px">
+      <el-form :model="cfConfigDialog.form" label-width="120px">
+        <el-form-item label="API Token" required>
+          <el-input v-model="cfConfigDialog.form.api_token" placeholder="Cloudflare API Token" show-password />
+        </el-form-item>
+        <el-form-item label="Account ID" required>
+          <el-input v-model="cfConfigDialog.form.account_id" placeholder="Cloudflare Account ID" />
+        </el-form-item>
+        <el-form-item label="默认服务器IP" required>
+          <el-input v-model="cfConfigDialog.form.default_server_ip" placeholder="DNS记录指向的服务器IP" />
+        </el-form-item>
+      </el-form>
+      <div class="tips" style="margin-top: 16px; padding: 12px; background: #f5f7fa; border-radius: 4px;">
+        <p style="margin: 0 0 8px;"><strong>获取方式：</strong></p>
+        <p style="margin: 0; font-size: 12px; color: #909399;">1. 登录 Cloudflare Dashboard</p>
+        <p style="margin: 0; font-size: 12px; color: #909399;">2. 点击右上角头像 → My Profile → API Tokens</p>
+        <p style="margin: 0; font-size: 12px; color: #909399;">3. 创建Token，选择 "Edit zone DNS" 模板</p>
+        <p style="margin: 0; font-size: 12px; color: #909399;">4. Account ID 在域名概览页右侧可找到</p>
+      </div>
+      <template #footer>
+        <el-button @click="cfConfigDialog.visible = false">取消</el-button>
+        <el-button type="primary" @click="saveCfConfig" :loading="submitting">保存配置</el-button>
+      </template>
+    </el-dialog>
+
+    <!-- Cloudflare 添加域名对话框 -->
+    <el-dialog v-model="cfAddDialog.visible" title="添加域名到 Cloudflare" width="500px">
+      <el-form :model="cfAddDialog.form" label-width="120px">
+        <el-form-item label="域名" required>
+          <el-input v-model="cfAddDialog.form.domain" placeholder="example.com（顶级域名）" />
+        </el-form-item>
+        <el-form-item label="服务器IP">
+          <el-input v-model="cfAddDialog.form.server_ip" :placeholder="cfConfig.default_server_ip || '使用默认服务器IP'" />
+        </el-form-item>
+        <el-form-item label="开启HTTPS">
+          <el-checkbox v-model="cfAddDialog.form.enable_https">自动开启 Full SSL 和始终 HTTPS</el-checkbox>
+        </el-form-item>
+        <el-form-item label="加入域名池">
+          <el-checkbox v-model="cfAddDialog.form.add_to_pool">同时添加到本地域名池</el-checkbox>
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="cfAddDialog.visible = false">取消</el-button>
+        <el-button type="primary" @click="submitCfAddDomain" :loading="submitting">添加</el-button>
+      </template>
+    </el-dialog>
+
+    <!-- Cloudflare 批量添加对话框 -->
+    <el-dialog v-model="cfBatchDialog.visible" title="批量添加域名到 Cloudflare" width="600px">
+      <el-form label-width="120px">
+        <el-form-item label="域名列表" required>
+          <el-input 
+            v-model="cfBatchDialog.domains" 
+            type="textarea" 
+            :rows="8" 
+            placeholder="每行一个顶级域名，例如：&#10;example.com&#10;test.com&#10;demo.org" 
+          />
+        </el-form-item>
+        <el-form-item label="服务器IP">
+          <el-input v-model="cfBatchDialog.server_ip" :placeholder="cfConfig.default_server_ip || '使用默认服务器IP'" />
+        </el-form-item>
+        <el-form-item label="开启HTTPS">
+          <el-checkbox v-model="cfBatchDialog.enable_https">自动开启 Full SSL 和始终 HTTPS</el-checkbox>
+        </el-form-item>
+        <el-form-item label="加入域名池">
+          <el-checkbox v-model="cfBatchDialog.add_to_pool">同时添加到本地域名池</el-checkbox>
+        </el-form-item>
+      </el-form>
+      
+      <div v-if="cfBatchDialog.results.length > 0" style="margin-top: 16px;">
+        <el-divider>添加结果</el-divider>
+        <div style="max-height: 200px; overflow-y: auto;">
+          <div v-for="(result, index) in cfBatchDialog.results" :key="index" style="margin-bottom: 8px;">
+            <el-tag :type="result.success ? 'success' : 'danger'" size="small">
+              {{ result.domain }}: {{ result.success ? '成功' : result.error }}
+            </el-tag>
+            <span v-if="result.nameservers" style="font-size: 12px; color: #909399; margin-left: 8px;">
+              NS: {{ result.nameservers.join(', ') }}
+            </span>
+          </div>
+        </div>
+      </div>
+      
+      <template #footer>
+        <el-button @click="cfBatchDialog.visible = false">关闭</el-button>
+        <el-button type="primary" @click="submitCfBatchAdd" :loading="submitting">批量添加</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -261,11 +428,17 @@ import api, {
   addDomain as apiAddDomain, 
   updateDomain as apiUpdateDomain, 
   deleteDomain as apiDeleteDomain,
-  checkAllDomains
+  checkAllDomains,
+  cfGetConfig,
+  cfSaveConfig,
+  cfListZones,
+  cfAddDomain,
+  cfBatchAddDomains,
+  cfEnableHttps as apiCfEnableHttps
 } from '../api'
 
 const activeTab = ref('ip')
-const loading = reactive({ ip: false, domain: false, checking: false })
+const loading = reactive({ ip: false, domain: false, checking: false, cf: false })
 const submitting = ref(false)
 
 // ==================== IP池相关 ====================
@@ -558,10 +731,199 @@ const deleteDomainAction = async (row) => {
   } catch {}
 }
 
+// ==================== Cloudflare 相关 ====================
+const cfConfig = reactive({
+  api_token: '',
+  account_id: '',
+  default_server_ip: ''
+})
+const cfZones = ref([])
+const cfConfigured = computed(() => cfConfig.api_token && cfConfig.account_id && cfConfig.default_server_ip)
+
+const cfConfigDialog = reactive({
+  visible: false,
+  form: { api_token: '', account_id: '', default_server_ip: '' }
+})
+
+const cfAddDialog = reactive({
+  visible: false,
+  form: { domain: '', server_ip: '', enable_https: true, add_to_pool: true }
+})
+
+const cfBatchDialog = reactive({
+  visible: false,
+  domains: '',
+  server_ip: '',
+  enable_https: true,
+  add_to_pool: true,
+  results: []
+})
+
+const loadCfConfig = async () => {
+  try {
+    const res = await cfGetConfig()
+    if (res.success && res.config) {
+      Object.assign(cfConfig, res.config)
+    }
+  } catch {}
+}
+
+const loadCfZones = async () => {
+  if (!cfConfigured.value) return
+  loading.cf = true
+  try {
+    const res = await cfListZones()
+    if (res.success) {
+      cfZones.value = res.zones || []
+    }
+  } catch {
+    ElMessage.error('获取域名列表失败')
+  } finally {
+    loading.cf = false
+  }
+}
+
+const showCfConfigDialog = () => {
+  cfConfigDialog.form = { ...cfConfig }
+  cfConfigDialog.visible = true
+}
+
+const saveCfConfig = async () => {
+  const { api_token, account_id, default_server_ip } = cfConfigDialog.form
+  if (!api_token || !account_id || !default_server_ip) {
+    ElMessage.warning('请填写完整的配置信息')
+    return
+  }
+  submitting.value = true
+  try {
+    const res = await cfSaveConfig(cfConfigDialog.form)
+    if (res.success) {
+      Object.assign(cfConfig, cfConfigDialog.form)
+      cfConfigDialog.visible = false
+      ElMessage.success('配置已保存')
+      loadCfZones()
+    } else {
+      ElMessage.error(res.message || '保存失败')
+    }
+  } finally {
+    submitting.value = false
+  }
+}
+
+const showCfAddDialog = () => {
+  cfAddDialog.form = { domain: '', server_ip: '', enable_https: true, add_to_pool: true }
+  cfAddDialog.visible = true
+}
+
+const submitCfAddDomain = async () => {
+  if (!cfAddDialog.form.domain.trim()) {
+    ElMessage.warning('请输入域名')
+    return
+  }
+  submitting.value = true
+  try {
+    const res = await cfAddDomain({
+      domain: cfAddDialog.form.domain,
+      server_ip: cfAddDialog.form.server_ip || cfConfig.default_server_ip,
+      enable_https: cfAddDialog.form.enable_https,
+      add_to_pool: cfAddDialog.form.add_to_pool
+    })
+    if (res.success) {
+      let msg = `域名 ${cfAddDialog.form.domain} 添加成功！`
+      if (res.nameservers) {
+        msg += `\n请将域名NS修改为：\n${res.nameservers.join('\n')}`
+      }
+      ElMessage.success({ message: msg, duration: 10000, showClose: true })
+      cfAddDialog.visible = false
+      loadCfZones()
+      if (cfAddDialog.form.add_to_pool) {
+        loadDomains()
+      }
+    } else {
+      ElMessage.error(res.message || '添加失败')
+    }
+  } finally {
+    submitting.value = false
+  }
+}
+
+const showCfBatchDialog = () => {
+  cfBatchDialog.domains = ''
+  cfBatchDialog.server_ip = ''
+  cfBatchDialog.enable_https = true
+  cfBatchDialog.add_to_pool = true
+  cfBatchDialog.results = []
+  cfBatchDialog.visible = true
+}
+
+const submitCfBatchAdd = async () => {
+  const domainList = cfBatchDialog.domains.split('\n').map(d => d.trim()).filter(d => d)
+  if (domainList.length === 0) {
+    ElMessage.warning('请输入至少一个域名')
+    return
+  }
+  submitting.value = true
+  cfBatchDialog.results = []
+  try {
+    const res = await cfBatchAddDomains({
+      domains: domainList,
+      server_ip: cfBatchDialog.server_ip || cfConfig.default_server_ip,
+      enable_https: cfBatchDialog.enable_https,
+      add_to_pool: cfBatchDialog.add_to_pool
+    })
+    if (res.success) {
+      cfBatchDialog.results = res.results || []
+      const successCount = cfBatchDialog.results.filter(r => r.success).length
+      ElMessage.success(`批量添加完成：${successCount}/${domainList.length} 成功`)
+      loadCfZones()
+      if (cfBatchDialog.add_to_pool) {
+        loadDomains()
+      }
+    } else {
+      ElMessage.error(res.message || '批量添加失败')
+    }
+  } finally {
+    submitting.value = false
+  }
+}
+
+const cfEnableHttps = async (domain) => {
+  try {
+    const res = await apiCfEnableHttps(domain)
+    if (res.success) {
+      ElMessage.success(`已为 ${domain} 开启HTTPS`)
+    } else {
+      ElMessage.error(res.message || '操作失败')
+    }
+  } catch {
+    ElMessage.error('操作失败')
+  }
+}
+
+const cfAddToPool = async (domain) => {
+  submitting.value = true
+  try {
+    const res = await apiAddDomain({
+      domain: `https://${domain}`,
+      name: `CF-${domain}`,
+      is_default: 0
+    })
+    if (res.success) {
+      ElMessage.success(`域名 ${domain} 已添加到域名池`)
+      loadDomains()
+    } else {
+      ElMessage.error(res.message || '添加失败')
+    }
+  } finally {
+    submitting.value = false
+  }
+}
+
 // ==================== 初始化 ====================
 onMounted(() => {
   loadIpPool()
   loadDomains()
+  loadCfConfig()
 })
 </script>
 
@@ -612,5 +974,15 @@ onMounted(() => {
   margin-top: 16px;
   display: flex;
   justify-content: flex-end;
+}
+
+.cf-status {
+  font-size: 13px;
+  line-height: 2;
+}
+
+.cf-status p {
+  margin: 0;
+  word-break: break-all;
 }
 </style>

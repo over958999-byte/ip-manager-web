@@ -1414,6 +1414,218 @@ switch ($action) {
         ]);
         break;
 
+    // ==================== Cloudflare API ====================
+    
+    case 'cf_get_config':
+        // 获取 Cloudflare 配置
+        $cfConfig = $db->getConfig('cloudflare', []);
+        echo json_encode([
+            'success' => true,
+            'data' => [
+                'api_token' => !empty($cfConfig['api_token']) ? '********' . substr($cfConfig['api_token'], -4) : '',
+                'account_id' => $cfConfig['account_id'] ?? '',
+                'default_server_ip' => $cfConfig['default_server_ip'] ?? '',
+                'configured' => !empty($cfConfig['api_token']) && !empty($cfConfig['account_id'])
+            ]
+        ]);
+        break;
+        
+    case 'cf_save_config':
+        // 保存 Cloudflare 配置
+        $apiToken = $input['api_token'] ?? '';
+        $accountId = $input['account_id'] ?? '';
+        $defaultServerIp = $input['default_server_ip'] ?? '';
+        
+        if (empty($apiToken) || empty($accountId)) {
+            echo json_encode(['success' => false, 'message' => 'API Token 和 Account ID 不能为空']);
+            break;
+        }
+        
+        // 验证 Token
+        require_once __DIR__ . '/../core/cloudflare.php';
+        $cf = new CloudflareService($apiToken, $accountId);
+        $verify = $cf->verifyToken();
+        
+        if (!$verify['success']) {
+            echo json_encode(['success' => false, 'message' => 'API Token 验证失败: ' . $verify['message']]);
+            break;
+        }
+        
+        $db->setConfig('cloudflare', [
+            'api_token' => $apiToken,
+            'account_id' => $accountId,
+            'default_server_ip' => $defaultServerIp
+        ]);
+        
+        echo json_encode(['success' => true, 'message' => 'Cloudflare 配置已保存']);
+        break;
+        
+    case 'cf_list_zones':
+        // 获取 Cloudflare 域名列表
+        $cfConfig = $db->getConfig('cloudflare', []);
+        if (empty($cfConfig['api_token'])) {
+            echo json_encode(['success' => false, 'message' => '请先配置 Cloudflare API']);
+            break;
+        }
+        
+        require_once __DIR__ . '/../core/cloudflare.php';
+        $cf = new CloudflareService($cfConfig['api_token'], $cfConfig['account_id']);
+        $result = $cf->listZones();
+        
+        echo json_encode($result);
+        break;
+        
+    case 'cf_add_domain':
+        // 添加域名到 Cloudflare（一键配置）
+        $cfConfig = $db->getConfig('cloudflare', []);
+        if (empty($cfConfig['api_token'])) {
+            echo json_encode(['success' => false, 'message' => '请先配置 Cloudflare API']);
+            break;
+        }
+        
+        $domain = trim($input['domain'] ?? '');
+        $serverIp = trim($input['server_ip'] ?? $cfConfig['default_server_ip'] ?? '');
+        $enableHttps = $input['enable_https'] ?? true;
+        $addToDomainPool = $input['add_to_pool'] ?? true;
+        
+        if (empty($domain)) {
+            echo json_encode(['success' => false, 'message' => '域名不能为空']);
+            break;
+        }
+        
+        if (empty($serverIp)) {
+            echo json_encode(['success' => false, 'message' => '服务器 IP 不能为空']);
+            break;
+        }
+        
+        require_once __DIR__ . '/../core/cloudflare.php';
+        $cf = new CloudflareService($cfConfig['api_token'], $cfConfig['account_id']);
+        $result = $cf->quickSetup($domain, $serverIp, $enableHttps);
+        
+        // 如果成功且需要添加到域名池
+        if ($result['success'] && $addToDomainPool) {
+            require_once __DIR__ . '/../core/jump.php';
+            $jumpService = new JumpService($db->getPdo());
+            $jumpService->addDomain('https://' . $domain, $domain . ' (Cloudflare)', false);
+        }
+        
+        echo json_encode($result);
+        break;
+        
+    case 'cf_batch_add_domains':
+        // 批量添加域名到 Cloudflare
+        $cfConfig = $db->getConfig('cloudflare', []);
+        if (empty($cfConfig['api_token'])) {
+            echo json_encode(['success' => false, 'message' => '请先配置 Cloudflare API']);
+            break;
+        }
+        
+        $domains = $input['domains'] ?? [];
+        $serverIp = trim($input['server_ip'] ?? $cfConfig['default_server_ip'] ?? '');
+        $enableHttps = $input['enable_https'] ?? true;
+        $addToDomainPool = $input['add_to_pool'] ?? true;
+        
+        if (empty($domains)) {
+            echo json_encode(['success' => false, 'message' => '域名列表不能为空']);
+            break;
+        }
+        
+        if (empty($serverIp)) {
+            echo json_encode(['success' => false, 'message' => '服务器 IP 不能为空']);
+            break;
+        }
+        
+        require_once __DIR__ . '/../core/cloudflare.php';
+        require_once __DIR__ . '/../core/jump.php';
+        
+        $cf = new CloudflareService($cfConfig['api_token'], $cfConfig['account_id']);
+        $jumpService = new JumpService($db->getPdo());
+        
+        $results = [];
+        $successCount = 0;
+        $failCount = 0;
+        
+        foreach ($domains as $domain) {
+            $domain = trim($domain);
+            if (empty($domain)) continue;
+            
+            $result = $cf->quickSetup($domain, $serverIp, $enableHttps);
+            
+            if ($result['success']) {
+                $successCount++;
+                if ($addToDomainPool) {
+                    $jumpService->addDomain('https://' . $domain, $domain . ' (Cloudflare)', false);
+                }
+            } else {
+                $failCount++;
+            }
+            
+            $results[] = [
+                'domain' => $domain,
+                'success' => $result['success'],
+                'message' => $result['message'] ?? '',
+                'name_servers' => $result['name_servers'] ?? []
+            ];
+            
+            // 避免 API 限流
+            usleep(500000); // 0.5 秒
+        }
+        
+        echo json_encode([
+            'success' => true,
+            'results' => $results,
+            'summary' => [
+                'total' => count($domains),
+                'success' => $successCount,
+                'failed' => $failCount
+            ]
+        ]);
+        break;
+        
+    case 'cf_enable_https':
+        // 为已有域名开启 HTTPS
+        $cfConfig = $db->getConfig('cloudflare', []);
+        if (empty($cfConfig['api_token'])) {
+            echo json_encode(['success' => false, 'message' => '请先配置 Cloudflare API']);
+            break;
+        }
+        
+        $domain = trim($input['domain'] ?? '');
+        if (empty($domain)) {
+            echo json_encode(['success' => false, 'message' => '域名不能为空']);
+            break;
+        }
+        
+        require_once __DIR__ . '/../core/cloudflare.php';
+        $cf = new CloudflareService($cfConfig['api_token'], $cfConfig['account_id']);
+        
+        // 获取 Zone ID
+        $zoneId = $cf->getZoneId($domain);
+        if (!$zoneId) {
+            echo json_encode(['success' => false, 'message' => '域名未在 Cloudflare 中找到']);
+            break;
+        }
+        
+        $steps = [];
+        
+        // 设置 SSL 模式
+        $sslResult = $cf->setSslMode($zoneId, 'full');
+        $steps[] = ['step' => 'SSL 模式', 'success' => $sslResult['success']];
+        
+        // 开启始终 HTTPS
+        $httpsResult = $cf->enableAlwaysHttps($zoneId);
+        $steps[] = ['step' => '始终使用 HTTPS', 'success' => $httpsResult['success']];
+        
+        // 开启自动重写
+        $rewriteResult = $cf->enableAutomaticHttpsRewrites($zoneId);
+        $steps[] = ['step' => '自动 HTTPS 重写', 'success' => $rewriteResult['success']];
+        
+        echo json_encode([
+            'success' => true,
+            'steps' => $steps
+        ]);
+        break;
+
     default:
         echo json_encode(['success' => false, 'message' => '未知操作']);
         break;
