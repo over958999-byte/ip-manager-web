@@ -173,11 +173,126 @@ cd "$INSTALL_DIR"
 log_step "设置文件权限..."
 chown -R www-data:www-data "$INSTALL_DIR" 2>/dev/null || chown -R nginx:nginx "$INSTALL_DIR"
 
-# 检查Nginx配置是否支持HTTPS
+# 检查Nginx配置是否支持HTTPS和验证端点
 log_step "检查Nginx配置..."
-if ! grep -q "listen 443 ssl" /etc/nginx/sites-enabled/ip-manager 2>/dev/null && \
-   ! grep -q "listen 443 ssl" /etc/nginx/conf.d/ip-manager.conf 2>/dev/null; then
-    log_warn "Nginx配置未启用HTTPS，建议重新运行 install.sh 更新配置"
+NGINX_CONF=""
+if [ -f "/etc/nginx/sites-enabled/ip-manager" ]; then
+    NGINX_CONF="/etc/nginx/sites-enabled/ip-manager"
+elif [ -f "/etc/nginx/conf.d/ip-manager.conf" ]; then
+    NGINX_CONF="/etc/nginx/conf.d/ip-manager.conf"
+fi
+
+NGINX_NEEDS_UPDATE=false
+
+if [ -n "$NGINX_CONF" ]; then
+    # 检查是否启用HTTPS
+    if ! grep -q "listen 443 ssl" "$NGINX_CONF"; then
+        log_warn "Nginx配置未启用HTTPS"
+        NGINX_NEEDS_UPDATE=true
+    fi
+    
+    # 检查是否有验证端点 (用于Cloudflare域名解析验证)
+    if ! grep -q "_verify_server" "$NGINX_CONF"; then
+        log_warn "Nginx配置缺少验证端点 _verify_server"
+        NGINX_NEEDS_UPDATE=true
+    fi
+    
+    # 检查是否有短链接路由
+    if ! grep -q "s.php" "$NGINX_CONF"; then
+        log_warn "Nginx配置缺少短链接路由"
+        NGINX_NEEDS_UPDATE=true
+    fi
+    
+    if [ "$NGINX_NEEDS_UPDATE" = true ]; then
+        log_info "更新Nginx配置..."
+        
+        # 检测PHP-FPM socket路径
+        PHP_FPM_SOCK=$(find /run/php -name "*.sock" 2>/dev/null | head -1)
+        if [ -z "$PHP_FPM_SOCK" ]; then
+            PHP_FPM_SOCK=$(find /var/run/php-fpm -name "*.sock" 2>/dev/null | head -1)
+        fi
+        if [ -n "$PHP_FPM_SOCK" ]; then
+            FASTCGI_PASS="fastcgi_pass unix:${PHP_FPM_SOCK};"
+        else
+            FASTCGI_PASS="fastcgi_pass 127.0.0.1:9000;"
+        fi
+        
+        cat > "$NGINX_CONF" << NGINXEOF
+server {
+    listen 80;
+    listen 443 ssl;
+    server_name _;
+    root ${INSTALL_DIR}/public;
+    index index.php index.html;
+
+    ssl_certificate /etc/nginx/ssl/server.crt;
+    ssl_certificate_key /etc/nginx/ssl/server.key;
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_ciphers HIGH:!aNULL:!MD5;
+    ssl_prefer_server_ciphers on;
+    ssl_session_cache shared:SSL:10m;
+    ssl_session_timeout 10m;
+
+    access_log /var/log/nginx/ip-manager.access.log;
+    error_log /var/log/nginx/ip-manager.error.log;
+
+    location / {
+        try_files \$uri \$uri/ /index.php?\$query_string;
+    }
+
+    location /admin {
+        alias ${INSTALL_DIR}/dist;
+        try_files \$uri \$uri/ /admin/index.html;
+    }
+
+    location ~ ^/api\.php {
+        ${FASTCGI_PASS}
+        fastcgi_param SCRIPT_FILENAME ${INSTALL_DIR}/backend/api/api.php;
+        include fastcgi_params;
+    }
+
+    # 服务器验证端点（用于Cloudflare等CDN环境下验证域名解析）
+    location = /_verify_server {
+        ${FASTCGI_PASS}
+        fastcgi_param SCRIPT_FILENAME ${INSTALL_DIR}/public/verify.php;
+        include fastcgi_params;
+    }
+
+    # 短链接跳转 (4-10位字母数字)
+    location ~ "^/([a-zA-Z0-9]{4,10})\$" {
+        ${FASTCGI_PASS}
+        fastcgi_param SCRIPT_FILENAME ${INSTALL_DIR}/public/s.php;
+        fastcgi_param QUERY_STRING code=\$1;
+        include fastcgi_params;
+    }
+
+    location ~ ^/j\.php {
+        ${FASTCGI_PASS}
+        fastcgi_param SCRIPT_FILENAME ${INSTALL_DIR}/j.php;
+        include fastcgi_params;
+    }
+
+    location ~ \.php\$ {
+        ${FASTCGI_PASS}
+        fastcgi_param SCRIPT_FILENAME \$document_root\$fastcgi_script_name;
+        include fastcgi_params;
+    }
+
+    location ~ /\. {
+        deny all;
+    }
+
+    location ~ ^/(backend|config|deploy|data)/ {
+        deny all;
+    }
+}
+NGINXEOF
+        log_info "Nginx配置已更新"
+    else
+        log_info "Nginx配置已是最新"
+    fi
+else
+    log_warn "未找到Nginx配置文件，建议重新运行 install.sh"
 fi
 
 # 重启服务

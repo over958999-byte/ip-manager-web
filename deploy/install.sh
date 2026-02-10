@@ -688,6 +688,21 @@ server {
         include fastcgi_params;
     }
 
+    # 服务器验证端点（用于Cloudflare等CDN环境下验证域名解析）
+    location = /_verify_server {
+        ${FASTCGI_PASS}
+        fastcgi_param SCRIPT_FILENAME ${INSTALL_DIR}/public/verify.php;
+        include fastcgi_params;
+    }
+
+    # 短链接跳转 (4-10位字母数字)
+    location ~ "^/([a-zA-Z0-9]{4,10})\$" {
+        ${FASTCGI_PASS}
+        fastcgi_param SCRIPT_FILENAME ${INSTALL_DIR}/public/s.php;
+        fastcgi_param QUERY_STRING code=\$1;
+        include fastcgi_params;
+    }
+
     # 短链接跳转
     location ~ ^/j\.php {
         ${FASTCGI_PASS}
@@ -783,6 +798,21 @@ server {
     location ~ ^/api\.php {
         ${FASTCGI_PASS}
         fastcgi_param SCRIPT_FILENAME ${INSTALL_DIR}/backend/api/api.php;
+        include fastcgi_params;
+    }
+
+    # 服务器验证端点（用于Cloudflare等CDN环境下验证域名解析）
+    location = /_verify_server {
+        ${FASTCGI_PASS}
+        fastcgi_param SCRIPT_FILENAME ${INSTALL_DIR}/public/verify.php;
+        include fastcgi_params;
+    }
+
+    # 短链接跳转 (4-10位字母数字)
+    location ~ "^/([a-zA-Z0-9]{4,10})\$" {
+        ${FASTCGI_PASS}
+        fastcgi_param SCRIPT_FILENAME ${INSTALL_DIR}/public/s.php;
+        fastcgi_param QUERY_STRING code=\$1;
         include fastcgi_params;
     }
 
