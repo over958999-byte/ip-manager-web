@@ -246,6 +246,7 @@ CREATE TABLE IF NOT EXISTS ip_blacklist (
     type ENUM('malicious', 'bot', 'datacenter', 'proxy', 'custom') NOT NULL DEFAULT 'custom' COMMENT '类型',
     category VARCHAR(50) DEFAULT NULL COMMENT '分类',
     name VARCHAR(100) DEFAULT NULL COMMENT '名称描述',
+    source VARCHAR(100) DEFAULT NULL COMMENT '数据来源',
     enabled TINYINT(1) NOT NULL DEFAULT 1 COMMENT '是否启用',
     hit_count INT UNSIGNED DEFAULT 0 COMMENT '命中次数',
     last_hit_at DATETIME DEFAULT NULL COMMENT '最后命中时间',
@@ -254,6 +255,7 @@ CREATE TABLE IF NOT EXISTS ip_blacklist (
     INDEX idx_ip_range (ip_start, ip_end),
     INDEX idx_type_enabled (type, enabled),
     INDEX idx_category (category),
+    INDEX idx_source (source),
     UNIQUE KEY uk_ip_cidr (ip_cidr)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='IP黑名单库';
 

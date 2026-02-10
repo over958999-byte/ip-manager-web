@@ -222,6 +222,25 @@ if [ -f "backend/core/db_config.php" ]; then
         "
     fi
     
+    # 检查 jump_domains 表的安全状态字段
+    if ! mysql -e "SELECT safety_status FROM ${DB_NAME}.jump_domains LIMIT 1" 2>/dev/null; then
+        log_info "添加域名安全状态字段..."
+        mysql "$DB_NAME" -e "
+        ALTER TABLE jump_domains ADD COLUMN safety_status ENUM('unknown', 'safe', 'warning', 'danger') DEFAULT 'unknown' COMMENT '安全状态';
+        ALTER TABLE jump_domains ADD COLUMN safety_detail JSON DEFAULT NULL COMMENT '安全检测详情';
+        ALTER TABLE jump_domains ADD COLUMN last_check_at DATETIME DEFAULT NULL COMMENT '最后检测时间';
+        " 2>/dev/null || true
+    fi
+    
+    # 检查 ip_blacklist 表的 source 字段
+    if ! mysql -e "SELECT source FROM ${DB_NAME}.ip_blacklist LIMIT 1" 2>/dev/null; then
+        log_info "添加IP黑名单来源字段..."
+        mysql "$DB_NAME" -e "
+        ALTER TABLE ip_blacklist ADD COLUMN source VARCHAR(100) DEFAULT NULL COMMENT '数据来源' AFTER name;
+        ALTER TABLE ip_blacklist ADD INDEX idx_source (source);
+        " 2>/dev/null || true
+    fi
+    
     # 检查安全相关配置
     log_info "检查安全配置..."
     mysql "$DB_NAME" -e "
@@ -254,28 +273,26 @@ else
         log_info "Node.js 版本: $(node -v)"
         log_info "npm 版本: $(npm -v)"
         
-        # 安装依赖
-        if [ ! -d "node_modules" ]; then
-        log_info "安装依赖..."
+        # 安装依赖 (每次更新都重新安装以确保新依赖被安装)
+        log_info "安装前端依赖..."
         npm install
-    fi
     
-    # 编译
-    log_info "编译前端..."
-    npm run build
+        # 编译
+        log_info "编译前端..."
+        npm run build
     
-    # 编译产物会自动输出到 ../../dist (即 $INSTALL_DIR/dist)
-    if [ -d "$INSTALL_DIR/dist" ]; then
-        log_info "前端编译成功！"
+        # 编译产物会自动输出到 ../../dist (即 $INSTALL_DIR/dist)
+        if [ -d "$INSTALL_DIR/dist" ]; then
+            log_info "前端编译成功！"
+        else
+            log_error "前端编译失败，dist 目录不存在"
+        fi
     else
-        log_error "前端编译失败，dist 目录不存在"
+        log_warn "未检测到 Node.js 环境，跳过前端编译"
+        log_info "请手动安装 Node.js 后执行: cd backend/frontend && npm install && npm run build"
     fi
-else
-    log_warn "未检测到 Node.js 环境，跳过前端编译"
-    log_info "请手动安装 Node.js 后执行: cd backend/frontend && npm install && npm run build"
-fi
 
-cd "$INSTALL_DIR"
+    cd "$INSTALL_DIR"
 fi
 
 # 设置权限
