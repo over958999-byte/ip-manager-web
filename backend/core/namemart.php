@@ -30,10 +30,12 @@ class NamemartService {
     }
     
     /**
-     * 获取当前时间戳（UTC+8格式）
+     * 获取当前时间戳（UTC+8格式，Namemart API 要求）
      */
     private function getTimestamp(): string {
-        return date('Y-m-d H:i:s');
+        $tz = new DateTimeZone('Asia/Shanghai');
+        $dt = new DateTime('now', $tz);
+        return $dt->format('Y-m-d H:i:s');
     }
     
     /**
