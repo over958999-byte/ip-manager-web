@@ -599,9 +599,36 @@ build_frontend() {
     log_info "前端构建完成"
 }
 
+# 生成自签名SSL证书 (用于Cloudflare Full模式)
+generate_ssl_cert() {
+    log_step "生成自签名SSL证书..."
+    
+    mkdir -p /etc/nginx/ssl
+    
+    # 检查证书是否已存在
+    if [ -f "/etc/nginx/ssl/server.crt" ] && [ -f "/etc/nginx/ssl/server.key" ]; then
+        log_info "SSL证书已存在，跳过生成"
+        return
+    fi
+    
+    # 生成自签名证书 (有效期10年)
+    openssl req -x509 -nodes -days 3650 -newkey rsa:2048 \
+        -keyout /etc/nginx/ssl/server.key \
+        -out /etc/nginx/ssl/server.crt \
+        -subj "/CN=${DOMAIN:-localhost}/O=IP Manager/C=US" 2>/dev/null
+    
+    chmod 600 /etc/nginx/ssl/server.key
+    chmod 644 /etc/nginx/ssl/server.crt
+    
+    log_info "SSL证书生成完成"
+}
+
 # 配置Nginx
 configure_nginx() {
     log_step "配置Nginx..."
+
+    # 生成SSL证书
+    generate_ssl_cert
 
     # 获取PHP-FPM socket路径
     PHP_FPM_SOCK="/run/php/php${PHP_VERSION}-fpm.sock"
@@ -625,9 +652,19 @@ configure_nginx() {
     cat > /etc/nginx/sites-available/ip-manager << EOF
 server {
     listen 80;
+    listen 443 ssl;
     server_name ${DOMAIN:-_};
     root ${INSTALL_DIR}/public;
     index index.php index.html;
+
+    # SSL配置 (用于Cloudflare Full模式)
+    ssl_certificate /etc/nginx/ssl/server.crt;
+    ssl_certificate_key /etc/nginx/ssl/server.key;
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_ciphers HIGH:!aNULL:!MD5;
+    ssl_prefer_server_ciphers on;
+    ssl_session_cache shared:SSL:10m;
+    ssl_session_timeout 10m;
 
     # 日志配置
     access_log /var/log/nginx/ip-manager.access.log;
@@ -699,6 +736,9 @@ EOF
 configure_nginx_centos() {
     log_step "配置Nginx (CentOS)..."
 
+    # 生成SSL证书
+    generate_ssl_cert
+
     # 获取PHP-FPM socket路径
     PHP_FPM_SOCK="/var/run/php-fpm/www.sock"
     if [ ! -S "$PHP_FPM_SOCK" ]; then
@@ -714,9 +754,19 @@ configure_nginx_centos() {
     cat > /etc/nginx/conf.d/ip-manager.conf << EOF
 server {
     listen 80;
+    listen 443 ssl;
     server_name ${DOMAIN:-_};
     root ${INSTALL_DIR}/public;
     index index.php index.html;
+
+    # SSL配置 (用于Cloudflare Full模式)
+    ssl_certificate /etc/nginx/ssl/server.crt;
+    ssl_certificate_key /etc/nginx/ssl/server.key;
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_ciphers HIGH:!aNULL:!MD5;
+    ssl_prefer_server_ciphers on;
+    ssl_session_cache shared:SSL:10m;
+    ssl_session_timeout 10m;
 
     access_log /var/log/nginx/ip-manager.access.log;
     error_log /var/log/nginx/ip-manager.error.log;
