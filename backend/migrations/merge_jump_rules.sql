@@ -4,6 +4,18 @@
 
 USE ip_manager;
 
+-- 创建域名管理表
+CREATE TABLE IF NOT EXISTS jump_domains (
+    id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    domain VARCHAR(255) NOT NULL,
+    name VARCHAR(100) DEFAULT '',
+    is_default TINYINT(1) DEFAULT 0,
+    enabled TINYINT(1) DEFAULT 1,
+    use_count INT UNSIGNED DEFAULT 0,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE KEY uk_domain (domain)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
 -- 创建统一的跳转规则表
 CREATE TABLE IF NOT EXISTS jump_rules (
     id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
@@ -21,6 +33,7 @@ CREATE TABLE IF NOT EXISTS jump_rules (
     title VARCHAR(200) DEFAULT '',
     note VARCHAR(500) DEFAULT '',
     group_tag VARCHAR(50) DEFAULT 'default',
+    domain_id INT UNSIGNED DEFAULT NULL,
     enabled TINYINT(1) DEFAULT 1,
     
     -- 设备限制 (IP跳转用)
@@ -51,6 +64,7 @@ CREATE TABLE IF NOT EXISTS jump_rules (
     KEY idx_enabled (enabled),
     KEY idx_group (group_tag),
     KEY idx_type (rule_type),
+    KEY idx_domain (domain_id),
     KEY idx_created (created_at DESC)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 ROW_FORMAT=DYNAMIC;
 
