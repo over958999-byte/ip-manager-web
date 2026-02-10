@@ -38,6 +38,12 @@ const routes = [
         meta: { title: '反爬虫管理', icon: 'Shield' }
       },
       {
+        path: 'api-manager',
+        name: 'ApiManager',
+        component: () => import('../views/ApiManager.vue'),
+        meta: { title: 'API管理', icon: 'Connection' }
+      },
+      {
         path: 'settings',
         name: 'Settings',
         component: () => import('../views/Settings.vue'),

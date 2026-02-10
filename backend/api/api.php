@@ -140,6 +140,67 @@ function autoCompleteUrl($url) {
     return $url;
 }
 
+// 验证API Token
+function validateApiToken($db, $token, $requiredPermission = null) {
+    if (empty($token)) {
+        return ['valid' => false, 'error' => 'API Token不能为空'];
+    }
+    
+    $stmt = $db->prepare("SELECT * FROM api_tokens WHERE token = ?");
+    $stmt->execute([$token]);
+    $tokenData = $stmt->fetch(PDO::FETCH_ASSOC);
+    
+    if (!$tokenData) {
+        return ['valid' => false, 'error' => '无效的API Token'];
+    }
+    
+    if (!$tokenData['enabled']) {
+        return ['valid' => false, 'error' => 'API Token已禁用'];
+    }
+    
+    if ($tokenData['expires_at'] && strtotime($tokenData['expires_at']) < time()) {
+        return ['valid' => false, 'error' => 'API Token已过期'];
+    }
+    
+    // 检查权限
+    $permissions = json_decode($tokenData['permissions'], true) ?: [];
+    if ($requiredPermission && !in_array($requiredPermission, $permissions)) {
+        return ['valid' => false, 'error' => '权限不足: ' . $requiredPermission];
+    }
+    
+    // 更新最后使用时间和调用次数
+    $db->prepare("UPDATE api_tokens SET last_used_at = NOW(), call_count = call_count + 1 WHERE id = ?")
+       ->execute([$tokenData['id']]);
+    
+    return [
+        'valid' => true,
+        'token_id' => $tokenData['id'],
+        'rate_limit' => $tokenData['rate_limit'],
+        'permissions' => $permissions
+    ];
+}
+
+// 检查API速率限制
+function checkApiRateLimit($db, $tokenId, $limit) {
+    $stmt = $db->prepare("SELECT COUNT(*) FROM api_logs WHERE token_id = ? AND created_at > DATE_SUB(NOW(), INTERVAL 1 MINUTE)");
+    $stmt->execute([$tokenId]);
+    $count = $stmt->fetchColumn();
+    
+    return $count < $limit;
+}
+
+// 记录API调用日志
+function logApiCall($db, $tokenId, $action, $requestData, $responseCode = 200) {
+    $stmt = $db->prepare("INSERT INTO api_logs (token_id, action, request_data, response_code, ip) VALUES (?, ?, ?, ?, ?)");
+    $stmt->execute([
+        $tokenId,
+        $action,
+        json_encode($requestData),
+        $responseCode,
+        getClientIp()
+    ]);
+}
+
 // 获取请求数据
 $input = json_decode(file_get_contents('php://input'), true) ?? [];
 $action = $_GET['action'] ?? $input['action'] ?? '';
@@ -2669,6 +2730,386 @@ switch ($action) {
         require_once __DIR__ . '/../../public/ip_blacklist.php';
         IpBlacklist::refreshCache();
         echo json_encode(['success' => true, 'message' => '缓存已刷新']);
+        break;
+
+    // ==================== API Token 管理 ====================
+    
+    case 'api_token_list':
+        // 获取API Token列表
+        if (!checkLogin()) {
+            echo json_encode(['success' => false, 'message' => '请先登录']);
+            exit;
+        }
+        
+        $stmt = $db->query("SELECT id, name, token, permissions, rate_limit, enabled, last_used_at, call_count, created_at, expires_at, note FROM api_tokens ORDER BY id DESC");
+        $tokens = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        
+        foreach ($tokens as &$t) {
+            $t['permissions'] = json_decode($t['permissions'], true) ?: [];
+            // 隐藏token中间部分
+            $t['token_display'] = substr($t['token'], 0, 8) . '****' . substr($t['token'], -8);
+        }
+        
+        echo json_encode(['success' => true, 'data' => $tokens]);
+        break;
+        
+    case 'api_token_create':
+        // 创建API Token
+        if (!checkLogin()) {
+            echo json_encode(['success' => false, 'message' => '请先登录']);
+            exit;
+        }
+        
+        $name = trim($input['name'] ?? '');
+        if (empty($name)) {
+            echo json_encode(['success' => false, 'message' => 'Token名称不能为空']);
+            exit;
+        }
+        
+        // 生成64位随机Token
+        $token = bin2hex(random_bytes(32));
+        $permissions = json_encode($input['permissions'] ?? ['shortlink_create', 'shortlink_stats']);
+        $rateLimit = intval($input['rate_limit'] ?? 100);
+        $expiresAt = !empty($input['expires_at']) ? $input['expires_at'] : null;
+        $note = $input['note'] ?? '';
+        
+        $stmt = $db->prepare("INSERT INTO api_tokens (name, token, permissions, rate_limit, expires_at, note) VALUES (?, ?, ?, ?, ?, ?)");
+        $stmt->execute([$name, $token, $permissions, $rateLimit, $expiresAt, $note]);
+        
+        echo json_encode([
+            'success' => true, 
+            'message' => 'Token创建成功',
+            'data' => [
+                'id' => $db->lastInsertId(),
+                'token' => $token  // 仅创建时返回完整token
+            ]
+        ]);
+        break;
+        
+    case 'api_token_update':
+        // 更新API Token
+        if (!checkLogin()) {
+            echo json_encode(['success' => false, 'message' => '请先登录']);
+            exit;
+        }
+        
+        $id = intval($input['id'] ?? 0);
+        if ($id <= 0) {
+            echo json_encode(['success' => false, 'message' => 'ID无效']);
+            exit;
+        }
+        
+        $updates = [];
+        $params = [];
+        
+        if (isset($input['name'])) {
+            $updates[] = 'name = ?';
+            $params[] = $input['name'];
+        }
+        if (isset($input['permissions'])) {
+            $updates[] = 'permissions = ?';
+            $params[] = json_encode($input['permissions']);
+        }
+        if (isset($input['rate_limit'])) {
+            $updates[] = 'rate_limit = ?';
+            $params[] = intval($input['rate_limit']);
+        }
+        if (isset($input['enabled'])) {
+            $updates[] = 'enabled = ?';
+            $params[] = intval($input['enabled']);
+        }
+        if (array_key_exists('expires_at', $input)) {
+            $updates[] = 'expires_at = ?';
+            $params[] = $input['expires_at'] ?: null;
+        }
+        if (isset($input['note'])) {
+            $updates[] = 'note = ?';
+            $params[] = $input['note'];
+        }
+        
+        if (empty($updates)) {
+            echo json_encode(['success' => false, 'message' => '没有要更新的字段']);
+            exit;
+        }
+        
+        $params[] = $id;
+        $sql = "UPDATE api_tokens SET " . implode(', ', $updates) . " WHERE id = ?";
+        $db->prepare($sql)->execute($params);
+        
+        echo json_encode(['success' => true, 'message' => '更新成功']);
+        break;
+        
+    case 'api_token_delete':
+        // 删除API Token
+        if (!checkLogin()) {
+            echo json_encode(['success' => false, 'message' => '请先登录']);
+            exit;
+        }
+        
+        $id = intval($input['id'] ?? 0);
+        if ($id <= 0) {
+            echo json_encode(['success' => false, 'message' => 'ID无效']);
+            exit;
+        }
+        
+        $db->prepare("DELETE FROM api_tokens WHERE id = ?")->execute([$id]);
+        $db->prepare("DELETE FROM api_logs WHERE token_id = ?")->execute([$id]);
+        
+        echo json_encode(['success' => true, 'message' => '删除成功']);
+        break;
+        
+    case 'api_token_regenerate':
+        // 重新生成Token
+        if (!checkLogin()) {
+            echo json_encode(['success' => false, 'message' => '请先登录']);
+            exit;
+        }
+        
+        $id = intval($input['id'] ?? 0);
+        if ($id <= 0) {
+            echo json_encode(['success' => false, 'message' => 'ID无效']);
+            exit;
+        }
+        
+        $newToken = bin2hex(random_bytes(32));
+        $db->prepare("UPDATE api_tokens SET token = ? WHERE id = ?")->execute([$newToken, $id]);
+        
+        echo json_encode([
+            'success' => true, 
+            'message' => 'Token已重新生成',
+            'data' => ['token' => $newToken]
+        ]);
+        break;
+        
+    case 'api_token_logs':
+        // 获取API调用日志
+        if (!checkLogin()) {
+            echo json_encode(['success' => false, 'message' => '请先登录']);
+            exit;
+        }
+        
+        $tokenId = intval($input['token_id'] ?? $_GET['token_id'] ?? 0);
+        $limit = intval($input['limit'] ?? $_GET['limit'] ?? 100);
+        
+        $sql = "SELECT l.*, t.name as token_name FROM api_logs l LEFT JOIN api_tokens t ON l.token_id = t.id";
+        $params = [];
+        
+        if ($tokenId > 0) {
+            $sql .= " WHERE l.token_id = ?";
+            $params[] = $tokenId;
+        }
+        
+        $sql .= " ORDER BY l.id DESC LIMIT ?";
+        $params[] = $limit;
+        
+        $stmt = $db->prepare($sql);
+        $stmt->execute($params);
+        $logs = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        
+        foreach ($logs as &$log) {
+            $log['request_data'] = json_decode($log['request_data'], true);
+        }
+        
+        echo json_encode(['success' => true, 'data' => $logs]);
+        break;
+
+    // ==================== 外部 API 接口 ====================
+    
+    case 'external_create_shortlink':
+        // 外部API: 创建短链接
+        $apiToken = $_SERVER['HTTP_X_API_TOKEN'] ?? $input['api_token'] ?? '';
+        $tokenData = validateApiToken($db, $apiToken, 'shortlink_create');
+        
+        if (!$tokenData['valid']) {
+            http_response_code(401);
+            echo json_encode(['success' => false, 'error' => $tokenData['error']]);
+            exit;
+        }
+        
+        // 检查速率限制
+        if (!checkApiRateLimit($db, $tokenData['token_id'], $tokenData['rate_limit'])) {
+            http_response_code(429);
+            echo json_encode(['success' => false, 'error' => '请求过于频繁，请稍后重试']);
+            exit;
+        }
+        
+        require_once __DIR__ . '/../core/jump.php';
+        $jump = new JumpService($db->getPdo());
+        
+        $targetUrl = $input['url'] ?? $input['target_url'] ?? '';
+        if (empty($targetUrl)) {
+            logApiCall($db, $tokenData['token_id'], 'shortlink_create', $input, 400);
+            echo json_encode(['success' => false, 'error' => '目标URL不能为空']);
+            exit;
+        }
+        
+        $options = [
+            'title' => $input['title'] ?? '',
+            'note' => $input['note'] ?? '',
+            'domain_id' => $input['domain_id'] ?? null,
+            'expire_type' => $input['expire_type'] ?? 'permanent',
+            'expire_at' => $input['expire_at'] ?? null,
+            'max_clicks' => $input['max_clicks'] ?? null
+        ];
+        
+        $result = $jump->create('code', '', autoCompleteUrl($targetUrl), $options);
+        
+        logApiCall($db, $tokenData['token_id'], 'shortlink_create', $input, $result['success'] ? 200 : 400);
+        
+        if ($result['success']) {
+            echo json_encode([
+                'success' => true,
+                'data' => [
+                    'id' => $result['id'],
+                    'code' => $result['code'],
+                    'short_url' => $result['short_url'],
+                    'target_url' => $targetUrl
+                ]
+            ]);
+        } else {
+            echo json_encode(['success' => false, 'error' => $result['message']]);
+        }
+        break;
+        
+    case 'external_get_shortlink':
+        // 外部API: 获取短链接信息
+        $apiToken = $_SERVER['HTTP_X_API_TOKEN'] ?? $input['api_token'] ?? '';
+        $tokenData = validateApiToken($db, $apiToken, 'shortlink_stats');
+        
+        if (!$tokenData['valid']) {
+            http_response_code(401);
+            echo json_encode(['success' => false, 'error' => $tokenData['error']]);
+            exit;
+        }
+        
+        if (!checkApiRateLimit($db, $tokenData['token_id'], $tokenData['rate_limit'])) {
+            http_response_code(429);
+            echo json_encode(['success' => false, 'error' => '请求过于频繁']);
+            exit;
+        }
+        
+        $code = $input['code'] ?? $_GET['code'] ?? '';
+        $id = intval($input['id'] ?? $_GET['id'] ?? 0);
+        
+        if (empty($code) && $id <= 0) {
+            echo json_encode(['success' => false, 'error' => '请提供code或id']);
+            exit;
+        }
+        
+        require_once __DIR__ . '/../core/jump.php';
+        $jump = new JumpService($db->getPdo());
+        
+        if (!empty($code)) {
+            $rule = $jump->getByCode($code);
+        } else {
+            $rule = $jump->getById($id);
+        }
+        
+        logApiCall($db, $tokenData['token_id'], 'shortlink_get', $input, $rule ? 200 : 404);
+        
+        if ($rule) {
+            echo json_encode([
+                'success' => true,
+                'data' => [
+                    'id' => $rule['id'],
+                    'code' => $rule['match_key'],
+                    'target_url' => $rule['target_url'],
+                    'title' => $rule['title'],
+                    'total_clicks' => $rule['total_clicks'] ?? 0,
+                    'unique_visitors' => $rule['unique_visitors'] ?? 0,
+                    'enabled' => (bool)$rule['enabled'],
+                    'created_at' => $rule['created_at']
+                ]
+            ]);
+        } else {
+            http_response_code(404);
+            echo json_encode(['success' => false, 'error' => '短链接不存在']);
+        }
+        break;
+        
+    case 'external_list_shortlinks':
+        // 外部API: 列出短链接
+        $apiToken = $_SERVER['HTTP_X_API_TOKEN'] ?? $input['api_token'] ?? '';
+        $tokenData = validateApiToken($db, $apiToken, 'shortlink_stats');
+        
+        if (!$tokenData['valid']) {
+            http_response_code(401);
+            echo json_encode(['success' => false, 'error' => $tokenData['error']]);
+            exit;
+        }
+        
+        if (!checkApiRateLimit($db, $tokenData['token_id'], $tokenData['rate_limit'])) {
+            http_response_code(429);
+            echo json_encode(['success' => false, 'error' => '请求过于频繁']);
+            exit;
+        }
+        
+        $page = max(1, intval($input['page'] ?? $_GET['page'] ?? 1));
+        $limit = min(100, max(1, intval($input['limit'] ?? $_GET['limit'] ?? 20)));
+        $offset = ($page - 1) * $limit;
+        
+        $stmt = $db->query("SELECT COUNT(*) FROM jump_rules WHERE rule_type = 'code'");
+        $total = $stmt->fetchColumn();
+        
+        $stmt = $db->prepare("SELECT id, match_key as code, target_url, title, total_clicks, unique_visitors, enabled, created_at FROM jump_rules WHERE rule_type = 'code' ORDER BY id DESC LIMIT ? OFFSET ?");
+        $stmt->execute([$limit, $offset]);
+        $rules = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        
+        logApiCall($db, $tokenData['token_id'], 'shortlink_list', $input, 200);
+        
+        echo json_encode([
+            'success' => true,
+            'data' => [
+                'items' => $rules,
+                'total' => (int)$total,
+                'page' => $page,
+                'limit' => $limit,
+                'pages' => ceil($total / $limit)
+            ]
+        ]);
+        break;
+        
+    case 'external_delete_shortlink':
+        // 外部API: 删除短链接
+        $apiToken = $_SERVER['HTTP_X_API_TOKEN'] ?? $input['api_token'] ?? '';
+        $tokenData = validateApiToken($db, $apiToken, 'shortlink_delete');
+        
+        if (!$tokenData['valid']) {
+            http_response_code(401);
+            echo json_encode(['success' => false, 'error' => $tokenData['error']]);
+            exit;
+        }
+        
+        if (!checkApiRateLimit($db, $tokenData['token_id'], $tokenData['rate_limit'])) {
+            http_response_code(429);
+            echo json_encode(['success' => false, 'error' => '请求过于频繁']);
+            exit;
+        }
+        
+        $id = intval($input['id'] ?? 0);
+        $code = $input['code'] ?? '';
+        
+        if ($id <= 0 && empty($code)) {
+            echo json_encode(['success' => false, 'error' => '请提供id或code']);
+            exit;
+        }
+        
+        require_once __DIR__ . '/../core/jump.php';
+        $jump = new JumpService($db->getPdo());
+        
+        if (!empty($code)) {
+            $rule = $jump->getByCode($code);
+            if ($rule) $id = $rule['id'];
+        }
+        
+        if ($id > 0) {
+            $result = $jump->delete($id);
+            logApiCall($db, $tokenData['token_id'], 'shortlink_delete', $input, $result['success'] ? 200 : 400);
+            echo json_encode($result);
+        } else {
+            logApiCall($db, $tokenData['token_id'], 'shortlink_delete', $input, 404);
+            echo json_encode(['success' => false, 'error' => '短链接不存在']);
+        }
         break;
 
     default:

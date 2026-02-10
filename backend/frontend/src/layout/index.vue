@@ -29,6 +29,10 @@
           <el-icon><Shield /></el-icon>
           <template #title>反爬虫管理</template>
         </el-menu-item>
+        <el-menu-item index="/api-manager">
+          <el-icon><Connection /></el-icon>
+          <template #title>API管理</template>
+        </el-menu-item>
         <el-menu-item index="/settings">
           <el-icon><Setting /></el-icon>
           <template #title>系统设置</template>
