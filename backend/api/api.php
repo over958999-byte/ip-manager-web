@@ -43,8 +43,13 @@ function checkAdminAccess() {
     global $db;
     
     $client_ip = getClientIp();
-    $allowed_ips = $db->getConfig('admin_allowed_ips', ['127.0.0.1', '::1']);
+    $allowed_ips = $db->getConfig('admin_allowed_ips', []);
     $secret_key = $db->getConfig('admin_secret_key', '');
+    
+    // 如果白名单为空，允许所有IP访问
+    if (empty($allowed_ips)) {
+        return true;
+    }
     
     // 开发环境：允许 localhost 各种形式的访问
     $dev_ips = ['127.0.0.1', '::1', 'localhost', '0.0.0.0'];

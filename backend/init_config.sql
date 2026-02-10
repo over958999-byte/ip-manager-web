@@ -1,8 +1,8 @@
 -- 初始化配置数据
 INSERT IGNORE INTO config (`key`, `value`) VALUES 
-('admin_password', '"admin123"'),
-('admin_allowed_ips', '["127.0.0.1", "::1"]'),
-('admin_secret_key', '""');
+('admin_password', 'admin123'),
+('admin_allowed_ips', '[]'),
+('admin_secret_key', '');
 
 -- 初始化反爬虫配置
 INSERT IGNORE INTO antibot_config (`key`, `value`) VALUES 
