@@ -249,12 +249,23 @@
 
         <!-- 恶意IP库信息 -->
         <el-card style="margin-top: 16px;">
-          <template #header>恶意IP库统计</template>
+          <template #header>
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+              <span>恶意IP库统计</span>
+              <el-button type="primary" size="small" @click="showIpBlacklistDialog">管理IP库</el-button>
+            </div>
+          </template>
           <el-descriptions :column="1" size="small">
-            <el-descriptions-item label="总IP段数">{{ badIpStats.total || 0 }}</el-descriptions-item>
-            <el-descriptions-item label="恶意IP段">{{ badIpStats.malicious || 0 }}</el-descriptions-item>
-            <el-descriptions-item label="数据中心IP">{{ badIpStats.datacenter || 0 }}</el-descriptions-item>
+            <el-descriptions-item label="总规则数">{{ ipBlacklistStats.total_rules || 0 }}</el-descriptions-item>
+            <el-descriptions-item label="总命中次数">{{ ipBlacklistStats.total_hits || 0 }}</el-descriptions-item>
           </el-descriptions>
+          <div v-if="ipBlacklistStats.by_type?.length" style="margin-top: 10px;">
+            <el-tag v-for="item in ipBlacklistStats.by_type" :key="item.type" 
+                    :type="item.type === 'malicious' ? 'danger' : item.type === 'bot' ? 'warning' : 'info'"
+                    style="margin: 2px;">
+              {{ typeLabels[item.type] || item.type }}: {{ item.count }}
+            </el-tag>
+          </div>
         </el-card>
       </el-col>
     </el-row>
@@ -276,12 +287,101 @@
         <el-button type="primary" @click="addWhitelist">添加</el-button>
       </template>
     </el-dialog>
+
+    <!-- IP黑名单库管理对话框 -->
+    <el-dialog v-model="ipBlacklistDialogVisible" title="IP黑名单库管理" width="900px" top="5vh">
+      <div style="margin-bottom: 16px; display: flex; gap: 10px; flex-wrap: wrap;">
+        <el-input v-model="ipBlacklistSearch" placeholder="搜索IP/名称/分类" style="width: 200px;" clearable @clear="loadIpBlacklist" @keyup.enter="loadIpBlacklist">
+          <template #append>
+            <el-button @click="loadIpBlacklist"><el-icon><Search /></el-icon></el-button>
+          </template>
+        </el-input>
+        <el-select v-model="ipBlacklistTypeFilter" placeholder="类型" style="width: 120px;" clearable @change="loadIpBlacklist">
+          <el-option label="恶意IP" value="malicious" />
+          <el-option label="爬虫" value="bot" />
+          <el-option label="数据中心" value="datacenter" />
+          <el-option label="代理" value="proxy" />
+          <el-option label="自定义" value="custom" />
+        </el-select>
+        <el-select v-model="ipBlacklistCategoryFilter" placeholder="分类" style="width: 150px;" clearable @change="loadIpBlacklist">
+          <el-option v-for="cat in ipBlacklistCategories" :key="cat" :label="cat" :value="cat" />
+        </el-select>
+        <el-button type="primary" @click="showAddIpRuleDialog"><el-icon><Plus /></el-icon> 添加规则</el-button>
+        <el-button @click="refreshIpBlacklistCache"><el-icon><Refresh /></el-icon> 刷新缓存</el-button>
+        <el-input v-model="checkIpInput" placeholder="检测IP" style="width: 150px;">
+          <template #append>
+            <el-button @click="checkIpInBlacklist">检测</el-button>
+          </template>
+        </el-input>
+      </div>
+      
+      <el-table :data="ipBlacklistRules" v-loading="ipBlacklistLoading" max-height="450" size="small" border>
+        <el-table-column prop="ip_cidr" label="IP/CIDR" width="160" />
+        <el-table-column prop="type" label="类型" width="90">
+          <template #default="{ row }">
+            <el-tag :type="row.type === 'malicious' ? 'danger' : row.type === 'bot' ? 'warning' : 'info'" size="small">
+              {{ typeLabels[row.type] || row.type }}
+            </el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column prop="category" label="分类" width="120" />
+        <el-table-column prop="name" label="名称" min-width="150" show-overflow-tooltip />
+        <el-table-column prop="hit_count" label="命中" width="70" sortable />
+        <el-table-column prop="enabled" label="状态" width="70">
+          <template #default="{ row }">
+            <el-switch v-model="row.enabled" :active-value="1" :inactive-value="0" size="small" @change="toggleIpRule(row)" />
+          </template>
+        </el-table-column>
+        <el-table-column label="操作" width="80" fixed="right">
+          <template #default="{ row }">
+            <el-popconfirm title="确定删除此规则？" @confirm="removeIpRule(row.id)">
+              <template #reference>
+                <el-button link type="danger" size="small">删除</el-button>
+              </template>
+            </el-popconfirm>
+          </template>
+        </el-table-column>
+      </el-table>
+      
+      <div style="margin-top: 10px; color: #909399; font-size: 12px;">
+        共 {{ ipBlacklistRules.length }} 条规则 | 总命中 {{ ipBlacklistStats.total_hits || 0 }} 次
+      </div>
+    </el-dialog>
+
+    <!-- 添加IP规则对话框 -->
+    <el-dialog v-model="addIpRuleDialogVisible" title="添加IP黑名单规则" width="500px">
+      <el-form :model="newIpRule" label-width="80px">
+        <el-form-item label="IP/CIDR" required>
+          <el-input v-model="newIpRule.ip_cidr" placeholder="如: 192.168.1.0/24 或 192.168.1.1" />
+        </el-form-item>
+        <el-form-item label="类型">
+          <el-select v-model="newIpRule.type" style="width: 100%;">
+            <el-option label="恶意IP" value="malicious" />
+            <el-option label="爬虫" value="bot" />
+            <el-option label="数据中心" value="datacenter" />
+            <el-option label="代理" value="proxy" />
+            <el-option label="自定义" value="custom" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="分类">
+          <el-input v-model="newIpRule.category" placeholder="如: google, scanner, brazil_bank" />
+        </el-form-item>
+        <el-form-item label="名称">
+          <el-input v-model="newIpRule.name" placeholder="规则描述" />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="addIpRuleDialogVisible = false">取消</el-button>
+        <el-button type="primary" @click="addIpRule">添加</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
 <script setup>
 import { ref, reactive, computed, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
+import { Search, Plus, Refresh } from '@element-plus/icons-vue'
 import api from '../api'
 
 const loading = ref(false)
@@ -301,6 +401,32 @@ const config = reactive({
   ip_whitelist: []
 })
 const badIpStats = ref({})
+
+// IP黑名单库相关
+const ipBlacklistDialogVisible = ref(false)
+const ipBlacklistLoading = ref(false)
+const ipBlacklistRules = ref([])
+const ipBlacklistStats = ref({})
+const ipBlacklistCategories = ref([])
+const ipBlacklistSearch = ref('')
+const ipBlacklistTypeFilter = ref('')
+const ipBlacklistCategoryFilter = ref('')
+const addIpRuleDialogVisible = ref(false)
+const newIpRule = reactive({
+  ip_cidr: '',
+  type: 'custom',
+  category: '',
+  name: ''
+})
+const checkIpInput = ref('')
+
+const typeLabels = {
+  malicious: '恶意IP',
+  bot: '爬虫',
+  datacenter: '数据中心',
+  proxy: '代理',
+  custom: '自定义'
+}
 
 // 分页
 const logPage = ref(1)
@@ -485,6 +611,98 @@ const removeWhitelist = async (ip) => {
   if (res.success) {
     ElMessage.success('已移除')
     loadData()
+  }
+}
+
+// IP黑名单库管理函数
+const showIpBlacklistDialog = () => {
+  ipBlacklistDialogVisible.value = true
+  loadIpBlacklist()
+}
+
+const loadIpBlacklist = async () => {
+  ipBlacklistLoading.value = true
+  try {
+    const res = await api.request('ip_blacklist_list', {
+      search: ipBlacklistSearch.value || null,
+      type: ipBlacklistTypeFilter.value || null,
+      category: ipBlacklistCategoryFilter.value || null
+    })
+    if (res.success) {
+      ipBlacklistRules.value = res.rules || []
+      ipBlacklistStats.value = res.stats || {}
+      ipBlacklistCategories.value = res.categories || []
+    }
+  } finally {
+    ipBlacklistLoading.value = false
+  }
+}
+
+const showAddIpRuleDialog = () => {
+  newIpRule.ip_cidr = ''
+  newIpRule.type = 'custom'
+  newIpRule.category = ''
+  newIpRule.name = ''
+  addIpRuleDialogVisible.value = true
+}
+
+const addIpRule = async () => {
+  if (!newIpRule.ip_cidr) {
+    ElMessage.warning('请输入IP/CIDR')
+    return
+  }
+  const res = await api.request('ip_blacklist_add', newIpRule)
+  if (res.success) {
+    ElMessage.success('添加成功')
+    addIpRuleDialogVisible.value = false
+    loadIpBlacklist()
+  } else {
+    ElMessage.error(res.message)
+  }
+}
+
+const removeIpRule = async (id) => {
+  const res = await api.request('ip_blacklist_remove', { id })
+  if (res.success) {
+    ElMessage.success('已删除')
+    loadIpBlacklist()
+  } else {
+    ElMessage.error(res.message)
+  }
+}
+
+const toggleIpRule = async (row) => {
+  const res = await api.request('ip_blacklist_toggle', { id: row.id, enabled: row.enabled })
+  if (res.success) {
+    ElMessage.success(row.enabled ? '已启用' : '已禁用')
+  } else {
+    ElMessage.error(res.message)
+    row.enabled = row.enabled ? 0 : 1  // 回滚
+  }
+}
+
+const refreshIpBlacklistCache = async () => {
+  const res = await api.request('ip_blacklist_refresh')
+  if (res.success) {
+    ElMessage.success('缓存已刷新')
+  }
+}
+
+const checkIpInBlacklist = async () => {
+  if (!checkIpInput.value) {
+    ElMessage.warning('请输入要检测的IP')
+    return
+  }
+  const res = await api.request('ip_blacklist_check', { ip: checkIpInput.value })
+  if (res.success) {
+    const result = res.result
+    if (result.blocked) {
+      ElMessage.warning(`${res.ip} 在黑名单中: ${result.name || result.category || result.type}`)
+    } else {
+      ElMessage.success(`${res.ip} 不在黑名单中`)
+    }
+  } else {
+    ElMessage.error(res.message)
   }
 }
 

@@ -98,8 +98,16 @@
       <!-- 域名池标签页 -->
       <el-tab-pane label="域名池" name="domain">
         <div class="tab-header">
-          <span class="tab-title">域名池列表 ({{ domains.length }} 个) <span v-if="serverIp" style="color: #909399; font-weight: normal;">服务器IP: {{ serverIp }}</span></span>
+          <span class="tab-title">
+            域名池列表 ({{ domains.length }} 个) 
+            <span v-if="serverIp" style="color: #909399; font-weight: normal;">服务器IP: {{ serverIp }}</span>
+            <el-tag v-if="safetyStats.danger > 0" type="danger" size="small" style="margin-left: 12px;">{{ safetyStats.danger }} 危险</el-tag>
+            <el-tag v-if="safetyStats.warning > 0" type="warning" size="small" style="margin-left: 4px;">{{ safetyStats.warning }} 警告</el-tag>
+          </span>
           <div class="tab-actions">
+            <el-button size="small" type="warning" @click="checkAllDomainsSafety" :loading="loading.safety">
+              <el-icon><Shield /></el-icon> 安全检测
+            </el-button>
             <el-button size="small" @click="checkDomainsResolve" :loading="loading.checking">
               <el-icon><Refresh /></el-icon> 检测解析
             </el-button>
@@ -123,7 +131,7 @@
                   {{ row.name || '-' }}
                 </template>
               </el-table-column>
-              <el-table-column label="解析" width="120" align="center">
+              <el-table-column label="解析" width="100" align="center">
                 <template #default="{ row }">
                   <template v-if="domainStatus[row.id]">
                     <el-tooltip v-if="domainStatus[row.id].status === 'ok'" content="已正确解析到本服务器" placement="top">
@@ -137,6 +145,22 @@
                     </el-tooltip>
                   </template>
                   <span v-else style="color: #909399;">-</span>
+                </template>
+              </el-table-column>
+              <el-table-column label="安全" width="100" align="center">
+                <template #default="{ row }">
+                  <el-tooltip v-if="row.safety_status === 'safe'" content="安全检测通过" placement="top">
+                    <el-tag type="success" size="small">✓ 安全</el-tag>
+                  </el-tooltip>
+                  <el-tooltip v-else-if="row.safety_status === 'warning'" :content="getSafetyTooltip(row)" placement="top">
+                    <el-tag type="warning" size="small">⚠ 警告</el-tag>
+                  </el-tooltip>
+                  <el-tooltip v-else-if="row.safety_status === 'danger'" :content="getSafetyTooltip(row)" placement="top">
+                    <el-tag type="danger" size="small">✗ 危险</el-tag>
+                  </el-tooltip>
+                  <el-tooltip v-else content="点击安全检测按钮进行检测" placement="top">
+                    <span style="color: #909399; cursor: pointer;" @click="checkSingleDomainSafety(row)">未检测</span>
+                  </el-tooltip>
                 </template>
               </el-table-column>
               <el-table-column label="启用" width="70" align="center">
@@ -337,12 +361,6 @@
         <el-form-item label="Account ID" required>
           <el-input v-model="cfConfigDialog.form.account_id" placeholder="Cloudflare Account ID" />
         </el-form-item>
-        <el-form-item label="默认服务器IP" required>
-          <el-input v-model="cfConfigDialog.form.default_server_ip" placeholder="DNS记录指向的服务器IP" />
-        </el-form-item>
-        <el-form-item label="配置别名">
-          <el-input v-model="cfConfigDialog.form.alias" placeholder="可选，便于识别此配置" />
-        </el-form-item>
       </el-form>
       <div class="tips" style="margin-top: 16px; padding: 12px; background: #f5f7fa; border-radius: 4px;">
         <p style="margin: 0 0 8px;"><strong>获取方式：</strong></p>
@@ -363,9 +381,6 @@
         <el-form-item label="域名" required>
           <el-input v-model="cfAddDialog.form.domain" placeholder="example.com（顶级域名）" />
         </el-form-item>
-        <el-form-item label="服务器IP">
-          <el-input v-model="cfAddDialog.form.server_ip" :placeholder="cfConfig.default_server_ip || '使用默认服务器IP'" />
-        </el-form-item>
         <el-form-item label="开启HTTPS">
           <el-checkbox v-model="cfAddDialog.form.enable_https">自动开启 Full SSL 和始终 HTTPS</el-checkbox>
         </el-form-item>
@@ -373,6 +388,9 @@
           <el-checkbox v-model="cfAddDialog.form.add_to_pool">同时添加到本地域名池</el-checkbox>
         </el-form-item>
       </el-form>
+      <div class="tips" style="margin-top: 12px; padding: 8px 12px; background: #f0f9eb; border-radius: 4px; font-size: 12px; color: #67c23a;">
+        💡 服务器IP将自动获取，并自动添加 @ 和 www 两条A记录
+      </div>
       <template #footer>
         <el-button @click="cfAddDialog.visible = false">取消</el-button>
         <el-button type="primary" @click="submitCfAddDomain" :loading="submitting">添加</el-button>
@@ -390,9 +408,6 @@
             placeholder="每行一个顶级域名，例如：&#10;example.com&#10;test.com&#10;demo.org" 
           />
         </el-form-item>
-        <el-form-item label="服务器IP">
-          <el-input v-model="cfBatchDialog.server_ip" :placeholder="cfConfig.default_server_ip || '使用默认服务器IP'" />
-        </el-form-item>
         <el-form-item label="开启HTTPS">
           <el-checkbox v-model="cfBatchDialog.enable_https">自动开启 Full SSL 和始终 HTTPS</el-checkbox>
         </el-form-item>
@@ -400,6 +415,9 @@
           <el-checkbox v-model="cfBatchDialog.add_to_pool">同时添加到本地域名池</el-checkbox>
         </el-form-item>
       </el-form>
+      <div class="tips" style="margin-top: 12px; padding: 8px 12px; background: #f0f9eb; border-radius: 4px; font-size: 12px; color: #67c23a;">
+        💡 服务器IP将自动获取，并为每个域名自动添加 @ 和 www 两条A记录
+      </div>
       
       <div v-if="cfBatchDialog.results.length > 0" style="margin-top: 16px;">
         <el-divider>添加结果</el-divider>
@@ -437,11 +455,15 @@ import api, {
   cfListZones,
   cfAddDomain,
   cfBatchAddDomains,
-  cfEnableHttps as apiCfEnableHttps
+  cfEnableHttps as apiCfEnableHttps,
+  domainSafetyCheck,
+  domainSafetyCheckAll,
+  domainSafetyStats
 } from '../api'
+import { Plus, Delete, Refresh, Shield } from '@element-plus/icons-vue'
 
 const activeTab = ref('ip')
-const loading = reactive({ ip: false, domain: false, checking: false, cf: false })
+const loading = reactive({ ip: false, domain: false, checking: false, cf: false, safety: false })
 const submitting = ref(false)
 
 // ==================== IP池相关 ====================
@@ -583,6 +605,7 @@ const submitIpActivate = async () => {
 const domains = ref([])
 const domainStatus = ref({})  // 域名解析状态 { id: { status, resolved_ips, is_resolved } }
 const serverIp = ref('')
+const safetyStats = reactive({ total: 0, safe: 0, warning: 0, danger: 0, unknown: 0 })
 const domainForm = reactive({ domain: '', name: '', is_default: false })
 const domainEditDialog = reactive({
   visible: false,
@@ -596,9 +619,82 @@ const loadDomains = async () => {
     const res = await fetchDomains()
     if (res.success) {
       domains.value = res.data || res.domains || []
+      // 更新安全状态统计
+      updateSafetyStats()
     }
   } finally {
     loading.domain = false
+  }
+}
+
+// 更新安全状态统计
+const updateSafetyStats = () => {
+  safetyStats.total = domains.value.length
+  safetyStats.safe = domains.value.filter(d => d.safety_status === 'safe').length
+  safetyStats.warning = domains.value.filter(d => d.safety_status === 'warning').length
+  safetyStats.danger = domains.value.filter(d => d.safety_status === 'danger').length
+  safetyStats.unknown = domains.value.filter(d => !d.safety_status || d.safety_status === 'unknown').length
+}
+
+// 获取安全提示信息
+const getSafetyTooltip = (row) => {
+  if (!row.safety_detail) return '检测到安全风险'
+  try {
+    const detail = typeof row.safety_detail === 'string' ? JSON.parse(row.safety_detail) : row.safety_detail
+    const dangers = detail.dangers || []
+    const warnings = detail.warnings || []
+    const all = [...dangers, ...warnings]
+    return all.length > 0 ? all.join('; ') : '检测到安全风险'
+  } catch {
+    return '检测到安全风险'
+  }
+}
+
+// 检测单个域名安全状态
+const checkSingleDomainSafety = async (row) => {
+  try {
+    ElMessage.info(`正在检测 ${row.domain}...`)
+    const res = await domainSafetyCheck(row.domain, row.id)
+    if (res.success) {
+      // 更新本地数据
+      row.safety_status = res.status
+      row.safety_detail = res.detail
+      row.last_check_at = new Date().toISOString()
+      updateSafetyStats()
+      
+      if (res.status === 'safe') {
+        ElMessage.success(`${row.domain} 安全检测通过`)
+      } else if (res.status === 'warning') {
+        ElMessage.warning(`${row.domain} 存在安全警告`)
+      } else {
+        ElMessage.error(`${row.domain} 被标记为危险`)
+      }
+    } else {
+      ElMessage.error(res.message || '检测失败')
+    }
+  } catch {
+    ElMessage.error('检测失败')
+  }
+}
+
+// 检测所有域名安全状态
+const checkAllDomainsSafety = async () => {
+  loading.safety = true
+  try {
+    ElMessage.info('正在检测所有域名安全状态，请稍候...')
+    const res = await domainSafetyCheckAll()
+    if (res.success) {
+      const stats = res.stats || {}
+      ElMessage.success(`检测完成：安全 ${stats.safe || 0}，警告 ${stats.warning || 0}，危险 ${stats.danger || 0}`)
+      // 重新加载域名列表以获取最新状态
+      await loadDomains()
+    } else {
+      ElMessage.error(res.message || '检测失败')
+    }
+  } catch {
+    ElMessage.error('检测失败')
+  } finally {
+    loading.safety = false
   }
 }
 
@@ -737,27 +833,24 @@ const deleteDomainAction = async (row) => {
 // ==================== Cloudflare 相关 ====================
 const cfConfig = reactive({
   api_token: '',
-  account_id: '',
-  default_server_ip: '',
-  alias: ''
+  account_id: ''
 })
 const cfZones = ref([])
-const cfConfigured = computed(() => cfConfig.api_token && cfConfig.account_id && cfConfig.default_server_ip)
+const cfConfigured = computed(() => cfConfig.api_token && cfConfig.account_id)
 
 const cfConfigDialog = reactive({
   visible: false,
-  form: { api_token: '', account_id: '', default_server_ip: '', alias: '' }
+  form: { api_token: '', account_id: '' }
 })
 
 const cfAddDialog = reactive({
   visible: false,
-  form: { domain: '', server_ip: '', enable_https: true, add_to_pool: true }
+  form: { domain: '', enable_https: true, add_to_pool: true }
 })
 
 const cfBatchDialog = reactive({
   visible: false,
   domains: '',
-  server_ip: '',
   enable_https: true,
   add_to_pool: true,
   results: []
@@ -793,9 +886,9 @@ const showCfConfigDialog = () => {
 }
 
 const saveCfConfig = async () => {
-  const { api_token, account_id, default_server_ip } = cfConfigDialog.form
-  if (!api_token || !account_id || !default_server_ip) {
-    ElMessage.warning('请填写完整的配置信息')
+  const { api_token, account_id } = cfConfigDialog.form
+  if (!api_token || !account_id) {
+    ElMessage.warning('请填写 API Token 和 Account ID')
     return
   }
   submitting.value = true
@@ -828,7 +921,6 @@ const submitCfAddDomain = async () => {
   try {
     const res = await cfAddDomain({
       domain: cfAddDialog.form.domain,
-      server_ip: cfAddDialog.form.server_ip || cfConfig.default_server_ip,
       enable_https: cfAddDialog.form.enable_https,
       add_to_pool: cfAddDialog.form.add_to_pool
     })
@@ -853,7 +945,6 @@ const submitCfAddDomain = async () => {
 
 const showCfBatchDialog = () => {
   cfBatchDialog.domains = ''
-  cfBatchDialog.server_ip = ''
   cfBatchDialog.enable_https = true
   cfBatchDialog.add_to_pool = true
   cfBatchDialog.results = []
@@ -871,7 +962,6 @@ const submitCfBatchAdd = async () => {
   try {
     const res = await cfBatchAddDomains({
       domains: domainList,
-      server_ip: cfBatchDialog.server_ip || cfConfig.default_server_ip,
       enable_https: cfBatchDialog.enable_https,
       add_to_pool: cfBatchDialog.add_to_pool
     })

@@ -72,9 +72,11 @@ class CloudflareService {
     
     /**
      * 验证 API Token 是否有效
+     * 通过尝试获取 zones 列表来验证，因为某些 Token 可能没有 user:read 权限
      */
     public function verifyToken(): array {
-        $result = $this->request('GET', '/user/tokens/verify');
+        // 尝试获取 zones 列表来验证 Token
+        $result = $this->request('GET', '/zones?account.id=' . $this->accountId . '&per_page=1');
         
         if (isset($result['success']) && $result['success']) {
             return ['success' => true, 'message' => 'Token 有效'];

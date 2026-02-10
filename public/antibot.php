@@ -5,7 +5,17 @@
  */
 
 require_once __DIR__ . '/../backend/core/database.php';
-require_once __DIR__ . '/bad_ips.php';
+
+// 优先使用数据库版本的IP黑名单，如果表不存在则回退到文件版本
+$useDbBlacklist = false;
+try {
+    $pdo = Database::getInstance()->getConnection();
+    $stmt = $pdo->query("SELECT 1 FROM ip_blacklist LIMIT 1");
+    $useDbBlacklist = true;
+    require_once __DIR__ . '/ip_blacklist.php';
+} catch (Exception $e) {
+    require_once __DIR__ . '/bad_ips.php';
+}
 
 class AntiBot {
     private $config;

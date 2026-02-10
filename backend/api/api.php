@@ -1456,10 +1456,9 @@ switch ($action) {
         $cfConfig = $db->getConfig('cloudflare', []);
         echo json_encode([
             'success' => true,
-            'data' => [
+            'config' => [
                 'api_token' => !empty($cfConfig['api_token']) ? '********' . substr($cfConfig['api_token'], -4) : '',
                 'account_id' => $cfConfig['account_id'] ?? '',
-                'default_server_ip' => $cfConfig['default_server_ip'] ?? '',
                 'configured' => !empty($cfConfig['api_token']) && !empty($cfConfig['account_id'])
             ]
         ]);
@@ -1469,7 +1468,6 @@ switch ($action) {
         // 保存 Cloudflare 配置
         $apiToken = $input['api_token'] ?? '';
         $accountId = $input['account_id'] ?? '';
-        $defaultServerIp = $input['default_server_ip'] ?? '';
         
         if (empty($apiToken) || empty($accountId)) {
             echo json_encode(['success' => false, 'message' => 'API Token 和 Account ID 不能为空']);
@@ -1488,8 +1486,7 @@ switch ($action) {
         
         $db->setConfig('cloudflare', [
             'api_token' => $apiToken,
-            'account_id' => $accountId,
-            'default_server_ip' => $defaultServerIp
+            'account_id' => $accountId
         ]);
         
         echo json_encode(['success' => true, 'message' => 'Cloudflare 配置已保存']);
@@ -1519,7 +1516,6 @@ switch ($action) {
         }
         
         $domain = trim($input['domain'] ?? '');
-        $serverIp = trim($input['server_ip'] ?? $cfConfig['default_server_ip'] ?? '');
         $enableHttps = $input['enable_https'] ?? true;
         $addToDomainPool = $input['add_to_pool'] ?? true;
         
@@ -1528,8 +1524,15 @@ switch ($action) {
             break;
         }
         
+        // 动态获取当前服务器公网IP
+        $serverIp = @file_get_contents('https://api.ipify.org') ?: @file_get_contents('https://ifconfig.me/ip');
         if (empty($serverIp)) {
-            echo json_encode(['success' => false, 'message' => '服务器 IP 不能为空']);
+            $serverIp = $_SERVER['SERVER_ADDR'] ?? '';
+        }
+        $serverIp = trim($serverIp);
+        
+        if (empty($serverIp)) {
+            echo json_encode(['success' => false, 'message' => '无法获取服务器IP']);
             break;
         }
         
@@ -1556,7 +1559,6 @@ switch ($action) {
         }
         
         $domains = $input['domains'] ?? [];
-        $serverIp = trim($input['server_ip'] ?? $cfConfig['default_server_ip'] ?? '');
         $enableHttps = $input['enable_https'] ?? true;
         $addToDomainPool = $input['add_to_pool'] ?? true;
         
@@ -1565,8 +1567,15 @@ switch ($action) {
             break;
         }
         
+        // 动态获取当前服务器公网IP
+        $serverIp = @file_get_contents('https://api.ipify.org') ?: @file_get_contents('https://ifconfig.me/ip');
         if (empty($serverIp)) {
-            echo json_encode(['success' => false, 'message' => '服务器 IP 不能为空']);
+            $serverIp = $_SERVER['SERVER_ADDR'] ?? '';
+        }
+        $serverIp = trim($serverIp);
+        
+        if (empty($serverIp)) {
+            echo json_encode(['success' => false, 'message' => '无法获取服务器IP']);
             break;
         }
         
@@ -1659,6 +1668,255 @@ switch ($action) {
             'success' => true,
             'steps' => $steps
         ]);
+        break;
+
+    // ==================== 域名安全检测 API ====================
+    
+    case 'domain_safety_check':
+        // 检测单个域名安全状态
+        require_once __DIR__ . '/../core/domain_safety.php';
+        $checker = new DomainSafetyChecker($db->getPdo());
+        
+        $domain = trim($input['domain'] ?? '');
+        $domainId = intval($input['domain_id'] ?? 0);
+        
+        if (empty($domain)) {
+            echo json_encode(['success' => false, 'message' => '域名不能为空']);
+            break;
+        }
+        
+        $result = $checker->checkDomain($domain, $domainId);
+        echo json_encode($result);
+        break;
+        
+    case 'domain_safety_check_all':
+        // 检测所有域名安全状态
+        require_once __DIR__ . '/../core/domain_safety.php';
+        $checker = new DomainSafetyChecker($db->getPdo());
+        
+        $result = $checker->checkAllDomains();
+        echo json_encode($result);
+        break;
+        
+    case 'domain_safety_stats':
+        // 获取域名安全状态统计
+        require_once __DIR__ . '/../core/domain_safety.php';
+        $checker = new DomainSafetyChecker($db->getPdo());
+        
+        $stats = $checker->getStats();
+        $dangerDomains = $checker->getDangerDomains();
+        
+        echo json_encode([
+            'success' => true,
+            'stats' => $stats,
+            'danger_domains' => $dangerDomains
+        ]);
+        break;
+        
+    case 'domain_safety_logs':
+        // 获取检测日志
+        require_once __DIR__ . '/../core/domain_safety.php';
+        $checker = new DomainSafetyChecker($db->getPdo());
+        
+        $limit = intval($input['limit'] ?? 100);
+        $logs = $checker->getLogs($limit);
+        
+        echo json_encode([
+            'success' => true,
+            'logs' => $logs
+        ]);
+        break;
+        
+    case 'domain_safety_config':
+        // 获取/保存安全检测配置
+        require_once __DIR__ . '/../core/domain_safety.php';
+        $checker = new DomainSafetyChecker($db->getPdo());
+        
+        if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($input['config'])) {
+            $checker->saveConfig($input['config']);
+            echo json_encode(['success' => true, 'message' => '配置已保存']);
+        } else {
+            echo json_encode([
+                'success' => true,
+                'config' => $checker->getConfig()
+            ]);
+        }
+        break;
+
+    // =====================================================
+    // IP黑名单库管理 API
+    // =====================================================
+    
+    case 'ip_blacklist_list':
+        // 获取IP黑名单规则列表
+        if (!checkLogin()) {
+            echo json_encode(['success' => false, 'message' => '请先登录']);
+            exit;
+        }
+        require_once __DIR__ . '/../../public/ip_blacklist.php';
+        $ipBlacklist = IpBlacklist::getInstance();
+        
+        $filters = [
+            'type' => $input['type'] ?? null,
+            'category' => $input['category'] ?? null,
+            'enabled' => isset($input['enabled']) ? (bool)$input['enabled'] : null,
+            'search' => $input['search'] ?? null,
+            'limit' => $input['limit'] ?? 200,
+            'offset' => $input['offset'] ?? 0
+        ];
+        
+        $rules = $ipBlacklist->getRules($filters);
+        $stats = $ipBlacklist->getStats();
+        $categories = $ipBlacklist->getCategories();
+        
+        echo json_encode([
+            'success' => true,
+            'rules' => $rules,
+            'stats' => $stats,
+            'categories' => $categories
+        ]);
+        break;
+        
+    case 'ip_blacklist_add':
+        // 添加IP黑名单规则
+        if (!checkLogin()) {
+            echo json_encode(['success' => false, 'message' => '请先登录']);
+            exit;
+        }
+        require_once __DIR__ . '/../../public/ip_blacklist.php';
+        $ipBlacklist = IpBlacklist::getInstance();
+        
+        $ipCidr = trim($input['ip_cidr'] ?? '');
+        $type = $input['type'] ?? 'custom';
+        $category = $input['category'] ?? null;
+        $name = $input['name'] ?? null;
+        
+        if (empty($ipCidr)) {
+            echo json_encode(['success' => false, 'message' => 'IP/CIDR不能为空']);
+            exit;
+        }
+        
+        // 验证IP格式
+        if (strpos($ipCidr, '/') !== false) {
+            list($ip, $bits) = explode('/', $ipCidr);
+            if (!filter_var($ip, FILTER_VALIDATE_IP) || $bits < 0 || $bits > 32) {
+                echo json_encode(['success' => false, 'message' => 'IP/CIDR格式无效']);
+                exit;
+            }
+        } else {
+            if (!filter_var($ipCidr, FILTER_VALIDATE_IP)) {
+                echo json_encode(['success' => false, 'message' => 'IP格式无效']);
+                exit;
+            }
+        }
+        
+        if ($ipBlacklist->addRule($ipCidr, $type, $category, $name)) {
+            echo json_encode(['success' => true, 'message' => '添加成功']);
+        } else {
+            echo json_encode(['success' => false, 'message' => '添加失败，可能已存在']);
+        }
+        break;
+        
+    case 'ip_blacklist_remove':
+        // 删除IP黑名单规则
+        if (!checkLogin()) {
+            echo json_encode(['success' => false, 'message' => '请先登录']);
+            exit;
+        }
+        require_once __DIR__ . '/../../public/ip_blacklist.php';
+        $ipBlacklist = IpBlacklist::getInstance();
+        
+        $id = intval($input['id'] ?? 0);
+        if ($id <= 0) {
+            echo json_encode(['success' => false, 'message' => 'ID无效']);
+            exit;
+        }
+        
+        if ($ipBlacklist->removeRule($id)) {
+            echo json_encode(['success' => true, 'message' => '删除成功']);
+        } else {
+            echo json_encode(['success' => false, 'message' => '删除失败']);
+        }
+        break;
+        
+    case 'ip_blacklist_toggle':
+        // 启用/禁用IP黑名单规则
+        if (!checkLogin()) {
+            echo json_encode(['success' => false, 'message' => '请先登录']);
+            exit;
+        }
+        require_once __DIR__ . '/../../public/ip_blacklist.php';
+        $ipBlacklist = IpBlacklist::getInstance();
+        
+        $id = intval($input['id'] ?? 0);
+        $enabled = (bool)($input['enabled'] ?? true);
+        
+        if ($id <= 0) {
+            echo json_encode(['success' => false, 'message' => 'ID无效']);
+            exit;
+        }
+        
+        if ($ipBlacklist->toggleRule($id, $enabled)) {
+            echo json_encode(['success' => true, 'message' => $enabled ? '已启用' : '已禁用']);
+        } else {
+            echo json_encode(['success' => false, 'message' => '操作失败']);
+        }
+        break;
+        
+    case 'ip_blacklist_check':
+        // 检查IP是否在黑名单中
+        if (!checkLogin()) {
+            echo json_encode(['success' => false, 'message' => '请先登录']);
+            exit;
+        }
+        require_once __DIR__ . '/../../public/ip_blacklist.php';
+        
+        $ip = trim($input['ip'] ?? '');
+        if (empty($ip) || !filter_var($ip, FILTER_VALIDATE_IP)) {
+            echo json_encode(['success' => false, 'message' => 'IP格式无效']);
+            exit;
+        }
+        
+        $result = IpBlacklist::check($ip);
+        echo json_encode([
+            'success' => true,
+            'ip' => $ip,
+            'result' => $result
+        ]);
+        break;
+        
+    case 'ip_blacklist_import':
+        // 批量导入IP黑名单规则
+        if (!checkLogin()) {
+            echo json_encode(['success' => false, 'message' => '请先登录']);
+            exit;
+        }
+        require_once __DIR__ . '/../../public/ip_blacklist.php';
+        $ipBlacklist = IpBlacklist::getInstance();
+        
+        $rules = $input['rules'] ?? [];
+        if (empty($rules) || !is_array($rules)) {
+            echo json_encode(['success' => false, 'message' => '规则数据无效']);
+            exit;
+        }
+        
+        $result = $ipBlacklist->importRules($rules);
+        echo json_encode([
+            'success' => true,
+            'message' => "导入完成: {$result['success']}成功, {$result['failed']}失败",
+            'result' => $result
+        ]);
+        break;
+        
+    case 'ip_blacklist_refresh':
+        // 强制刷新缓存
+        if (!checkLogin()) {
+            echo json_encode(['success' => false, 'message' => '请先登录']);
+            exit;
+        }
+        require_once __DIR__ . '/../../public/ip_blacklist.php';
+        IpBlacklist::refreshCache();
+        echo json_encode(['success' => true, 'message' => '缓存已刷新']);
         break;
 
     default:

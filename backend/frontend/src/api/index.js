@@ -139,7 +139,18 @@ const api = {
   cfListZones: () => request.get('?action=cf_list_zones'),
   cfAddDomain: (data) => request.post('?action=cf_add_domain', data),
   cfBatchAddDomains: (data) => request.post('?action=cf_batch_add_domains', data),
-  cfEnableHttps: (domain) => request.post('?action=cf_enable_https', { domain })
+  cfEnableHttps: (domain) => request.post('?action=cf_enable_https', { domain }),
+  
+  // 域名安全检测 API
+  domainSafetyCheck: (domain, domainId) => request.post('?action=domain_safety_check', { domain, domain_id: domainId }),
+  domainSafetyCheckAll: () => request.post('?action=domain_safety_check_all'),
+  domainSafetyStats: () => request.get('?action=domain_safety_stats'),
+  domainSafetyLogs: (limit = 100) => request.get('?action=domain_safety_logs', { params: { limit } }),
+  domainSafetyConfig: () => request.get('?action=domain_safety_config'),
+  domainSafetySaveConfig: (config) => request.post('?action=domain_safety_config', { config }),
+  
+  // 通用请求方法
+  request: (action, data = {}) => request.post(`?action=${action}`, data)
 }
 
 // 导出 getAntibotStats 供 Dashboard 使用
@@ -152,5 +163,11 @@ export const cfListZones = () => request.get('?action=cf_list_zones')
 export const cfAddDomain = (data) => request.post('?action=cf_add_domain', data)
 export const cfBatchAddDomains = (data) => request.post('?action=cf_batch_add_domains', data)
 export const cfEnableHttps = (domain) => request.post('?action=cf_enable_https', { domain })
+
+// 域名安全检测 API 导出
+export const domainSafetyCheck = (domain, domainId) => request.post('?action=domain_safety_check', { domain, domain_id: domainId })
+export const domainSafetyCheckAll = () => request.post('?action=domain_safety_check_all')
+export const domainSafetyStats = () => request.get('?action=domain_safety_stats')
+export const domainSafetyLogs = (limit = 100) => request.get('?action=domain_safety_logs', { params: { limit } })
 
 export default api
