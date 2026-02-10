@@ -1934,9 +1934,19 @@ const nmRegisterSelected = async () => {
       
       // 输出每个域名的处理结果
       for (const result of res.results || []) {
+        // 先输出Cloudflare处理结果
+        if (result.cf_info) {
+          if (result.cf_info.success) {
+            const ns = result.cf_info.name_servers || []
+            addEventLog(`${result.domain} 已添加到Cloudflare，NS: ${ns.join(', ')}`, 'success')
+          } else {
+            addEventLog(`${result.domain} Cloudflare添加失败: ${result.cf_info.message}`, 'warning')
+          }
+        }
+        
+        // 再输出注册结果
         if (result.success) {
-          let msg = `${result.domain} ${result.task_no ? '任务已提交' : '注册成功'}`
-          if (result.cloudflare) msg += ' [已添加到CF]'
+          let msg = `${result.domain} ${result.task_no ? '注册任务已提交' : '注册成功'}`
           addEventLog(msg, result.task_no ? 'loading' : 'success')
         } else {
           addEventLog(`${result.domain} 注册失败: ${result.message}`, 'error')

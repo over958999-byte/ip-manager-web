@@ -2097,6 +2097,7 @@ switch ($action) {
             
             $useDns1 = $dns1;
             $useDns2 = $dns2;
+            $cfInfo = null;
             
             // 如果需要添加到 Cloudflare，先添加域名获取 NS
             if ($addToCloudflare && isset($cf)) {
@@ -2105,6 +2106,16 @@ switch ($action) {
                     $useDns1 = $cfResult['name_servers'][0] ?? $dns1;
                     $useDns2 = $cfResult['name_servers'][1] ?? $dns2;
                     $cfNameservers = $cfResult['name_servers'];
+                    $cfInfo = [
+                        'success' => true,
+                        'zone_id' => $cfResult['zone_id'] ?? null,
+                        'name_servers' => $cfResult['name_servers']
+                    ];
+                } else {
+                    $cfInfo = [
+                        'success' => false,
+                        'message' => $cfResult['message'] ?? '添加到Cloudflare失败'
+                    ];
                 }
             }
             
@@ -2119,7 +2130,8 @@ switch ($action) {
                     'message' => $result['async'] ? '注册任务已提交（异步）' : '注册成功',
                     'task_no' => $result['task_no'] ?? null,
                     'nameservers' => [$useDns1, $useDns2],
-                    'cloudflare' => $addToCloudflare
+                    'cloudflare' => $addToCloudflare,
+                    'cf_info' => $cfInfo
                 ];
             } else {
                 $failCount++;
