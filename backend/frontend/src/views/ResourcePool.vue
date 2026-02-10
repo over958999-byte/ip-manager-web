@@ -220,8 +220,16 @@
         </el-row>
       </el-tab-pane>
 
-      <!-- 域名购买标签页 (Namemart) -->
+      <!-- 域名购买标签页 -->
       <el-tab-pane label="域名购买" name="namemart">
+        <!-- 子标签切换 -->
+        <el-radio-group v-model="domainSubTab" style="margin-bottom: 16px;">
+          <el-radio-button label="purchase">域名购买</el-radio-button>
+          <el-radio-button label="cloudflare">Cloudflare管理</el-radio-button>
+        </el-radio-group>
+        
+        <!-- Namemart 域名购买子页面 -->
+        <div v-show="domainSubTab === 'purchase'">
         <div class="tab-header">
           <span class="tab-title">Namemart 域名批量购买</span>
           <div class="tab-actions">
@@ -393,8 +401,169 @@
             </el-card>
           </el-col>
         </el-row>
+        </div>
+        
+        <!-- Cloudflare 管理子页面 -->
+        <div v-show="domainSubTab === 'cloudflare'">
+          <div class="tab-header">
+            <span class="tab-title">Cloudflare 域名管理</span>
+            <div class="tab-actions">
+              <el-button size="small" @click="loadCfZonesForManage" :loading="loading.cfManage">
+                <el-icon><Refresh /></el-icon> 刷新列表
+              </el-button>
+            </div>
+          </div>
+          
+          <el-alert v-if="!cfConfigured" type="warning" :closable="false" style="margin-bottom: 16px;">
+            请先在"域名购买"页面配置 Cloudflare API
+          </el-alert>
+          
+          <el-row :gutter="20">
+            <el-col :span="8">
+              <el-card shadow="never" style="height: 500px; overflow-y: auto;">
+                <template #header>
+                  <div style="display: flex; justify-content: space-between; align-items: center;">
+                    <span>域名列表 ({{ cfManageZones.length }})</span>
+                  </div>
+                </template>
+                <div v-if="cfManageZones.length === 0" style="color: #909399; text-align: center; padding: 40px 0;">
+                  暂无域名
+                </div>
+                <div v-for="zone in cfManageZones" :key="zone.id" 
+                  class="cf-zone-item" 
+                  :class="{ active: cfSelectedZone?.id === zone.id }"
+                  @click="selectCfZone(zone)">
+                  <div class="zone-name">{{ zone.name }}</div>
+                  <el-tag :type="zone.status === 'active' ? 'success' : 'warning'" size="small">
+                    {{ zone.status === 'active' ? '已激活' : zone.status }}
+                  </el-tag>
+                </div>
+              </el-card>
+            </el-col>
+            
+            <el-col :span="16">
+              <el-card shadow="never" v-if="cfSelectedZone">
+                <template #header>
+                  <div style="display: flex; justify-content: space-between; align-items: center;">
+                    <span>{{ cfSelectedZone.name }} - DNS记录</span>
+                    <div>
+                      <el-button size="small" type="primary" @click="showAddDnsDialog">
+                        <el-icon><Plus /></el-icon> 添加记录
+                      </el-button>
+                      <el-button size="small" @click="loadDnsRecords" :loading="loading.dnsRecords">
+                        <el-icon><Refresh /></el-icon>
+                      </el-button>
+                    </div>
+                  </div>
+                </template>
+                
+                <!-- 域名状态信息 -->
+                <div class="zone-info-bar" style="margin-bottom: 12px; padding: 10px; background: #f5f7fa; border-radius: 4px;">
+                  <el-row :gutter="20">
+                    <el-col :span="6">
+                      <span style="color: #909399;">状态：</span>
+                      <el-tag :type="cfSelectedZone.status === 'active' ? 'success' : 'warning'" size="small">
+                        {{ cfSelectedZone.status === 'active' ? '已激活' : cfSelectedZone.status }}
+                      </el-tag>
+                    </el-col>
+                    <el-col :span="10">
+                      <span style="color: #909399;">NS服务器：</span>
+                      <span style="font-size: 12px;">{{ (cfSelectedZone.name_servers || []).join(', ') || '未知' }}</span>
+                    </el-col>
+                    <el-col :span="8" style="text-align: right;">
+                      <el-popconfirm title="确定从Cloudflare删除此域名吗？" @confirm="deleteCfZone(cfSelectedZone)">
+                        <template #reference>
+                          <el-button size="small" type="danger" link>删除域名</el-button>
+                        </template>
+                      </el-popconfirm>
+                    </el-col>
+                  </el-row>
+                </div>
+                
+                <!-- DNS记录表格 -->
+                <el-table :data="cfDnsRecords" style="width: 100%" max-height="350" size="small" v-loading="loading.dnsRecords">
+                  <el-table-column prop="type" label="类型" width="70" />
+                  <el-table-column prop="name" label="名称" min-width="150" show-overflow-tooltip>
+                    <template #default="{ row }">
+                      {{ row.name.replace('.' + cfSelectedZone.name, '').replace(cfSelectedZone.name, '@') }}
+                    </template>
+                  </el-table-column>
+                  <el-table-column prop="content" label="内容" min-width="150" show-overflow-tooltip />
+                  <el-table-column label="代理" width="60" align="center">
+                    <template #default="{ row }">
+                      <el-tag v-if="['A', 'AAAA', 'CNAME'].includes(row.type)" :type="row.proxied ? 'warning' : 'info'" size="small">
+                        {{ row.proxied ? '是' : '否' }}
+                      </el-tag>
+                      <span v-else>-</span>
+                    </template>
+                  </el-table-column>
+                  <el-table-column prop="ttl" label="TTL" width="70" align="center">
+                    <template #default="{ row }">
+                      {{ row.ttl === 1 ? '自动' : row.ttl }}
+                    </template>
+                  </el-table-column>
+                  <el-table-column label="操作" width="100" align="center">
+                    <template #default="{ row }">
+                      <el-button link type="primary" size="small" @click="editDnsRecord(row)">编辑</el-button>
+                      <el-popconfirm title="确定删除此DNS记录吗？" @confirm="deleteDnsRecordAction(row)">
+                        <template #reference>
+                          <el-button link type="danger" size="small">删除</el-button>
+                        </template>
+                      </el-popconfirm>
+                    </template>
+                  </el-table-column>
+                </el-table>
+              </el-card>
+              
+              <el-card shadow="never" v-else>
+                <div style="text-align: center; padding: 100px 0; color: #909399;">
+                  <el-icon style="font-size: 48px; margin-bottom: 16px;"><Setting /></el-icon>
+                  <p>请从左侧选择一个域名进行管理</p>
+                </div>
+              </el-card>
+            </el-col>
+          </el-row>
+        </div>
       </el-tab-pane>
     </el-tabs>
+    
+    <!-- DNS记录编辑对话框 -->
+    <el-dialog v-model="dnsDialog.visible" :title="dnsDialog.isEdit ? '编辑DNS记录' : '添加DNS记录'" width="500px">
+      <el-form :model="dnsDialog.form" label-width="80px">
+        <el-form-item label="类型">
+          <el-select v-model="dnsDialog.form.type" style="width: 100%;" :disabled="dnsDialog.isEdit">
+            <el-option label="A" value="A" />
+            <el-option label="AAAA" value="AAAA" />
+            <el-option label="CNAME" value="CNAME" />
+            <el-option label="TXT" value="TXT" />
+            <el-option label="MX" value="MX" />
+            <el-option label="NS" value="NS" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="名称">
+          <el-input v-model="dnsDialog.form.name" placeholder="@ 表示根域名，或输入子域名" />
+        </el-form-item>
+        <el-form-item label="内容">
+          <el-input v-model="dnsDialog.form.content" :placeholder="dnsDialog.form.type === 'A' ? 'IP地址' : '目标值'" />
+        </el-form-item>
+        <el-form-item label="代理" v-if="['A', 'AAAA', 'CNAME'].includes(dnsDialog.form.type)">
+          <el-switch v-model="dnsDialog.form.proxied" active-text="开启CDN" inactive-text="仅DNS" />
+        </el-form-item>
+        <el-form-item label="TTL">
+          <el-select v-model="dnsDialog.form.ttl" style="width: 100%;">
+            <el-option label="自动" :value="1" />
+            <el-option label="1分钟" :value="60" />
+            <el-option label="5分钟" :value="300" />
+            <el-option label="1小时" :value="3600" />
+            <el-option label="1天" :value="86400" />
+          </el-select>
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="dnsDialog.visible = false">取消</el-button>
+        <el-button type="primary" @click="saveDnsRecord" :loading="submitting">保存</el-button>
+      </template>
+    </el-dialog>
 
     <!-- IP激活对话框 -->
     <el-dialog v-model="ipActivateDialog.visible" title="激活IP" width="500px">
@@ -681,7 +850,7 @@
 </template>
 
 <script setup>
-import { ref, reactive, computed, onMounted } from 'vue'
+import { ref, reactive, computed, onMounted, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import api, { 
   getDomains as fetchDomains, 
@@ -695,6 +864,12 @@ import api, {
   cfAddDomain,
   cfBatchAddDomains,
   cfEnableHttps as apiCfEnableHttps,
+  cfGetDnsRecords,
+  cfAddDnsRecord,
+  cfUpdateDnsRecord,
+  cfDeleteDnsRecord,
+  cfGetZoneDetails,
+  cfDeleteZone,
   domainSafetyCheck,
   domainSafetyCheckAll,
   domainSafetyStats,
@@ -709,8 +884,138 @@ import api, {
 import { Plus, Delete, Refresh, Setting, User, Upload } from '@element-plus/icons-vue'
 
 const activeTab = ref('ip')
-const loading = reactive({ ip: false, domain: false, checking: false, cf: false, safety: false, nmCheck: false, nmRegister: false })
+const domainSubTab = ref('purchase')  // 域名购买子标签: purchase / cloudflare
+const loading = reactive({ ip: false, domain: false, checking: false, cf: false, safety: false, nmCheck: false, nmRegister: false, cfManage: false, dnsRecords: false })
 const submitting = ref(false)
+
+// ==================== Cloudflare管理相关 ====================
+const cfManageZones = ref([])
+const cfSelectedZone = ref(null)
+const cfDnsRecords = ref([])
+const dnsDialog = reactive({
+  visible: false,
+  isEdit: false,
+  recordId: '',
+  form: { type: 'A', name: '', content: '', proxied: true, ttl: 1 }
+})
+
+const loadCfZonesForManage = async () => {
+  if (!cfConfigured.value) return
+  loading.cfManage = true
+  try {
+    const res = await cfListZones()
+    if (res.success) {
+      cfManageZones.value = res.zones || []
+    }
+  } finally {
+    loading.cfManage = false
+  }
+}
+
+const selectCfZone = async (zone) => {
+  cfSelectedZone.value = zone
+  await loadDnsRecords()
+}
+
+const loadDnsRecords = async () => {
+  if (!cfSelectedZone.value) return
+  loading.dnsRecords = true
+  try {
+    const res = await cfGetDnsRecords(cfSelectedZone.value.id)
+    if (res.success) {
+      cfDnsRecords.value = res.records || []
+    }
+  } finally {
+    loading.dnsRecords = false
+  }
+}
+
+const showAddDnsDialog = () => {
+  dnsDialog.isEdit = false
+  dnsDialog.recordId = ''
+  dnsDialog.form = { type: 'A', name: '', content: '', proxied: true, ttl: 1 }
+  dnsDialog.visible = true
+}
+
+const editDnsRecord = (record) => {
+  dnsDialog.isEdit = true
+  dnsDialog.recordId = record.id
+  dnsDialog.form = {
+    type: record.type,
+    name: record.name.replace('.' + cfSelectedZone.value.name, '').replace(cfSelectedZone.value.name, '@'),
+    content: record.content,
+    proxied: record.proxied || false,
+    ttl: record.ttl
+  }
+  dnsDialog.visible = true
+}
+
+const saveDnsRecord = async () => {
+  if (!dnsDialog.form.name || !dnsDialog.form.content) {
+    ElMessage.warning('请填写完整信息')
+    return
+  }
+  submitting.value = true
+  try {
+    const name = dnsDialog.form.name === '@' ? cfSelectedZone.value.name : dnsDialog.form.name
+    const data = {
+      zone_id: cfSelectedZone.value.id,
+      type: dnsDialog.form.type,
+      name: name,
+      content: dnsDialog.form.content,
+      proxied: dnsDialog.form.proxied,
+      ttl: dnsDialog.form.ttl
+    }
+    
+    let res
+    if (dnsDialog.isEdit) {
+      data.record_id = dnsDialog.recordId
+      res = await cfUpdateDnsRecord(data)
+    } else {
+      res = await cfAddDnsRecord(data)
+    }
+    
+    if (res.success) {
+      ElMessage.success(dnsDialog.isEdit ? '更新成功' : '添加成功')
+      dnsDialog.visible = false
+      await loadDnsRecords()
+    } else {
+      ElMessage.error(res.message || '操作失败')
+    }
+  } finally {
+    submitting.value = false
+  }
+}
+
+const deleteDnsRecordAction = async (record) => {
+  try {
+    const res = await cfDeleteDnsRecord(cfSelectedZone.value.id, record.id)
+    if (res.success) {
+      ElMessage.success('删除成功')
+      await loadDnsRecords()
+    } else {
+      ElMessage.error(res.message || '删除失败')
+    }
+  } catch (e) {
+    ElMessage.error('删除失败')
+  }
+}
+
+const deleteCfZone = async (zone) => {
+  try {
+    const res = await cfDeleteZone(zone.id, zone.name)
+    if (res.success) {
+      ElMessage.success('域名已删除')
+      cfSelectedZone.value = null
+      cfDnsRecords.value = []
+      await loadCfZonesForManage()
+    } else {
+      ElMessage.error(res.message || '删除失败')
+    }
+  } catch (e) {
+    ElMessage.error('删除失败')
+  }
+}
 
 // ==================== IP池相关 ====================
 const ipPool = ref([])
@@ -1775,6 +2080,13 @@ onMounted(() => {
   loadCfConfig()
   loadNmConfig()
 })
+
+// 监听子标签切换，自动加载Cloudflare域名列表
+watch(domainSubTab, (newVal) => {
+  if (newVal === 'cloudflare' && cfManageZones.value.length === 0) {
+    loadCfZonesForManage()
+  }
+})
 </script>
 
 <style scoped>
@@ -1920,5 +2232,30 @@ onMounted(() => {
   height: 100%;
   color: #909399;
   font-size: 13px;
+}
+
+/* Cloudflare 管理样式 */
+.cf-zone-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px 12px;
+  border-bottom: 1px solid #ebeef5;
+  cursor: pointer;
+  transition: background-color 0.2s;
+}
+
+.cf-zone-item:hover {
+  background-color: #f5f7fa;
+}
+
+.cf-zone-item.active {
+  background-color: #ecf5ff;
+  border-left: 3px solid #409eff;
+}
+
+.cf-zone-item .zone-name {
+  font-size: 14px;
+  font-weight: 500;
 }
 </style>

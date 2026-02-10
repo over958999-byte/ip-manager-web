@@ -163,6 +163,12 @@ export const cfListZones = () => request.get('?action=cf_list_zones')
 export const cfAddDomain = (data) => request.post('?action=cf_add_domain', data)
 export const cfBatchAddDomains = (data) => request.post('?action=cf_batch_add_domains', data)
 export const cfEnableHttps = (domain) => request.post('?action=cf_enable_https', { domain })
+export const cfGetDnsRecords = (zoneId) => request.post('?action=cf_get_dns_records', { zone_id: zoneId })
+export const cfAddDnsRecord = (data) => request.post('?action=cf_add_dns_record', data)
+export const cfUpdateDnsRecord = (data) => request.post('?action=cf_update_dns_record', data)
+export const cfDeleteDnsRecord = (zoneId, recordId) => request.post('?action=cf_delete_dns_record', { zone_id: zoneId, record_id: recordId })
+export const cfGetZoneDetails = (zoneId) => request.post('?action=cf_get_zone_details', { zone_id: zoneId })
+export const cfDeleteZone = (zoneId, domain) => request.post('?action=cf_delete_zone', { zone_id: zoneId, domain })
 
 // Namemart 域名购买 API 导出
 export const nmGetConfig = () => request.get('?action=nm_get_config')

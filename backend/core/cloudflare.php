@@ -363,4 +363,88 @@ class CloudflareService {
         
         return ['success' => false, 'message' => $result['errors'][0]['message'] ?? '删除失败'];
     }
+    
+    /**
+     * 获取域名的所有DNS记录
+     */
+    public function getDnsRecords(string $zoneId, int $page = 1, int $perPage = 100): array {
+        $result = $this->request('GET', "/zones/{$zoneId}/dns_records?page={$page}&per_page={$perPage}");
+        
+        if (isset($result['success']) && $result['success']) {
+            return [
+                'success' => true,
+                'records' => $result['result'],
+                'total' => $result['result_info']['total_count'] ?? count($result['result'])
+            ];
+        }
+        
+        return ['success' => false, 'records' => [], 'message' => $result['errors'][0]['message'] ?? '获取DNS记录失败'];
+    }
+    
+    /**
+     * 更新DNS记录
+     */
+    public function updateDnsRecord(string $zoneId, string $recordId, string $type, string $name, string $content, bool $proxied = true, int $ttl = 1): array {
+        $data = [
+            'type' => strtoupper($type),
+            'name' => $name,
+            'content' => $content,
+            'ttl' => $ttl
+        ];
+        
+        if (in_array(strtoupper($type), ['A', 'AAAA', 'CNAME'])) {
+            $data['proxied'] = $proxied;
+        }
+        
+        $result = $this->request('PATCH', "/zones/{$zoneId}/dns_records/{$recordId}", $data);
+        
+        if (isset($result['success']) && $result['success']) {
+            return ['success' => true, 'record' => $result['result']];
+        }
+        
+        return ['success' => false, 'message' => $result['errors'][0]['message'] ?? '更新DNS记录失败'];
+    }
+    
+    /**
+     * 删除DNS记录
+     */
+    public function deleteDnsRecord(string $zoneId, string $recordId): array {
+        $result = $this->request('DELETE', "/zones/{$zoneId}/dns_records/{$recordId}");
+        
+        if (isset($result['success']) && $result['success']) {
+            return ['success' => true];
+        }
+        
+        return ['success' => false, 'message' => $result['errors'][0]['message'] ?? '删除DNS记录失败'];
+    }
+    
+    /**
+     * 获取域名详细信息（包括SSL状态等）
+     */
+    public function getZoneDetails(string $zoneId): array {
+        $zone = $this->request('GET', "/zones/{$zoneId}");
+        
+        if (!isset($zone['success']) || !$zone['success']) {
+            return ['success' => false, 'message' => $zone['errors'][0]['message'] ?? '获取域名信息失败'];
+        }
+        
+        // 获取SSL设置
+        $ssl = $this->request('GET', "/zones/{$zoneId}/settings/ssl");
+        $https = $this->request('GET', "/zones/{$zoneId}/settings/always_use_https");
+        
+        return [
+            'success' => true,
+            'zone' => [
+                'id' => $zone['result']['id'],
+                'name' => $zone['result']['name'],
+                'status' => $zone['result']['status'],
+                'name_servers' => $zone['result']['name_servers'] ?? [],
+                'original_name_servers' => $zone['result']['original_name_servers'] ?? [],
+                'created_on' => $zone['result']['created_on'] ?? '',
+                'modified_on' => $zone['result']['modified_on'] ?? '',
+                'ssl_mode' => $ssl['result']['value'] ?? 'unknown',
+                'always_https' => $https['result']['value'] ?? 'unknown'
+            ]
+        ];
+    }
 }

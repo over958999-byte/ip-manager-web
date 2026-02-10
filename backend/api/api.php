@@ -1751,6 +1751,186 @@ switch ($action) {
         
         echo json_encode(['success' => true, 'message' => '域名已从管理列表中移除']);
         break;
+    
+    case 'cf_get_dns_records':
+        // 获取域名的DNS记录
+        if (!checkLogin()) {
+            echo json_encode(['success' => false, 'message' => '请先登录']);
+            exit;
+        }
+        
+        $cfConfig = $db->getConfig('cloudflare', []);
+        if (empty($cfConfig['api_token'])) {
+            echo json_encode(['success' => false, 'message' => '请先配置 Cloudflare API']);
+            break;
+        }
+        
+        $zoneId = trim($input['zone_id'] ?? '');
+        if (empty($zoneId)) {
+            echo json_encode(['success' => false, 'message' => 'Zone ID 不能为空']);
+            break;
+        }
+        
+        require_once __DIR__ . '/../core/cloudflare.php';
+        $cf = new CloudflareService($cfConfig['api_token'], $cfConfig['account_id']);
+        
+        $result = $cf->getDnsRecords($zoneId);
+        echo json_encode($result);
+        break;
+    
+    case 'cf_add_dns_record':
+        // 添加DNS记录
+        if (!checkLogin()) {
+            echo json_encode(['success' => false, 'message' => '请先登录']);
+            exit;
+        }
+        
+        $cfConfig = $db->getConfig('cloudflare', []);
+        if (empty($cfConfig['api_token'])) {
+            echo json_encode(['success' => false, 'message' => '请先配置 Cloudflare API']);
+            break;
+        }
+        
+        $zoneId = trim($input['zone_id'] ?? '');
+        $type = strtoupper(trim($input['type'] ?? 'A'));
+        $name = trim($input['name'] ?? '');
+        $content = trim($input['content'] ?? '');
+        $proxied = $input['proxied'] ?? true;
+        $ttl = intval($input['ttl'] ?? 1);
+        
+        if (empty($zoneId) || empty($name) || empty($content)) {
+            echo json_encode(['success' => false, 'message' => '参数不完整']);
+            break;
+        }
+        
+        require_once __DIR__ . '/../core/cloudflare.php';
+        $cf = new CloudflareService($cfConfig['api_token'], $cfConfig['account_id']);
+        
+        $result = $cf->addDnsRecord($zoneId, $type, $name, $content, $proxied, $ttl);
+        echo json_encode($result);
+        break;
+    
+    case 'cf_update_dns_record':
+        // 更新DNS记录
+        if (!checkLogin()) {
+            echo json_encode(['success' => false, 'message' => '请先登录']);
+            exit;
+        }
+        
+        $cfConfig = $db->getConfig('cloudflare', []);
+        if (empty($cfConfig['api_token'])) {
+            echo json_encode(['success' => false, 'message' => '请先配置 Cloudflare API']);
+            break;
+        }
+        
+        $zoneId = trim($input['zone_id'] ?? '');
+        $recordId = trim($input['record_id'] ?? '');
+        $type = strtoupper(trim($input['type'] ?? 'A'));
+        $name = trim($input['name'] ?? '');
+        $content = trim($input['content'] ?? '');
+        $proxied = $input['proxied'] ?? true;
+        $ttl = intval($input['ttl'] ?? 1);
+        
+        if (empty($zoneId) || empty($recordId) || empty($name) || empty($content)) {
+            echo json_encode(['success' => false, 'message' => '参数不完整']);
+            break;
+        }
+        
+        require_once __DIR__ . '/../core/cloudflare.php';
+        $cf = new CloudflareService($cfConfig['api_token'], $cfConfig['account_id']);
+        
+        $result = $cf->updateDnsRecord($zoneId, $recordId, $type, $name, $content, $proxied, $ttl);
+        echo json_encode($result);
+        break;
+    
+    case 'cf_delete_dns_record':
+        // 删除DNS记录
+        if (!checkLogin()) {
+            echo json_encode(['success' => false, 'message' => '请先登录']);
+            exit;
+        }
+        
+        $cfConfig = $db->getConfig('cloudflare', []);
+        if (empty($cfConfig['api_token'])) {
+            echo json_encode(['success' => false, 'message' => '请先配置 Cloudflare API']);
+            break;
+        }
+        
+        $zoneId = trim($input['zone_id'] ?? '');
+        $recordId = trim($input['record_id'] ?? '');
+        
+        if (empty($zoneId) || empty($recordId)) {
+            echo json_encode(['success' => false, 'message' => '参数不完整']);
+            break;
+        }
+        
+        require_once __DIR__ . '/../core/cloudflare.php';
+        $cf = new CloudflareService($cfConfig['api_token'], $cfConfig['account_id']);
+        
+        $result = $cf->deleteDnsRecord($zoneId, $recordId);
+        echo json_encode($result);
+        break;
+    
+    case 'cf_get_zone_details':
+        // 获取域名详细信息
+        if (!checkLogin()) {
+            echo json_encode(['success' => false, 'message' => '请先登录']);
+            exit;
+        }
+        
+        $cfConfig = $db->getConfig('cloudflare', []);
+        if (empty($cfConfig['api_token'])) {
+            echo json_encode(['success' => false, 'message' => '请先配置 Cloudflare API']);
+            break;
+        }
+        
+        $zoneId = trim($input['zone_id'] ?? '');
+        if (empty($zoneId)) {
+            echo json_encode(['success' => false, 'message' => 'Zone ID 不能为空']);
+            break;
+        }
+        
+        require_once __DIR__ . '/../core/cloudflare.php';
+        $cf = new CloudflareService($cfConfig['api_token'], $cfConfig['account_id']);
+        
+        $result = $cf->getZoneDetails($zoneId);
+        echo json_encode($result);
+        break;
+    
+    case 'cf_delete_zone':
+        // 删除Cloudflare域名
+        if (!checkLogin()) {
+            echo json_encode(['success' => false, 'message' => '请先登录']);
+            exit;
+        }
+        
+        $cfConfig = $db->getConfig('cloudflare', []);
+        if (empty($cfConfig['api_token'])) {
+            echo json_encode(['success' => false, 'message' => '请先配置 Cloudflare API']);
+            break;
+        }
+        
+        $zoneId = trim($input['zone_id'] ?? '');
+        $domain = trim($input['domain'] ?? '');
+        
+        if (empty($zoneId)) {
+            echo json_encode(['success' => false, 'message' => 'Zone ID 不能为空']);
+            break;
+        }
+        
+        require_once __DIR__ . '/../core/cloudflare.php';
+        $cf = new CloudflareService($cfConfig['api_token'], $cfConfig['account_id']);
+        
+        $result = $cf->deleteZone($zoneId);
+        
+        if ($result['success'] && $domain) {
+            // 从本地数据库中删除
+            $stmt = $pdo->prepare("DELETE FROM cf_domains WHERE domain = ?");
+            $stmt->execute([$domain]);
+        }
+        
+        echo json_encode($result);
+        break;
 
     // ==================== Namemart 域名购买 API ====================
     
