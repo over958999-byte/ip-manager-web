@@ -131,7 +131,7 @@
                 <template #default="{ row }">
                   <el-button v-if="!row.is_default" link type="primary" size="small" @click="setDefaultDomain(row)">设默认</el-button>
                   <el-button link type="warning" size="small" @click="editDomain(row)">编辑</el-button>
-                  <el-popconfirm v-if="!row.is_default" title="确定删除此域名吗？" @confirm="deleteDomain(row)">
+                  <el-popconfirm v-if="!row.is_default" title="确定删除此域名吗？" @confirm="deleteDomainAction(row)">
                     <template #reference>
                       <el-button link type="danger" size="small">删除</el-button>
                     </template>
@@ -238,7 +238,12 @@
 <script setup>
 import { ref, reactive, computed, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
-import api from '../api'
+import api, { 
+  getDomains as fetchDomains, 
+  addDomain as apiAddDomain, 
+  updateDomain as apiUpdateDomain, 
+  deleteDomain as apiDeleteDomain 
+} from '../api'
 
 const activeTab = ref('ip')
 const loading = reactive({ ip: false, domain: false })
@@ -391,7 +396,7 @@ const domainEditDialog = reactive({
 const loadDomains = async () => {
   loading.domain = true
   try {
-    const res = await api.getDomains()
+    const res = await fetchDomains()
     if (res.success) {
       domains.value = res.domains || []
     }
@@ -424,7 +429,7 @@ const quickAddDomain = async () => {
   }
   submitting.value = true
   try {
-    const res = await api.addDomain({
+    const res = await apiAddDomain({
       domain: domainForm.domain,
       name: domainForm.name,
       is_default: domainForm.is_default ? 1 : 0
@@ -452,12 +457,12 @@ const submitDomainEdit = async () => {
   try {
     let res
     if (domainEditDialog.isEdit) {
-      res = await api.updateDomain(domainEditDialog.form.id, {
+      res = await apiUpdateDomain(domainEditDialog.form.id, {
         name: domainEditDialog.form.name,
         is_default: domainEditDialog.form.is_default ? 1 : 0
       })
     } else {
-      res = await api.addDomain({
+      res = await apiAddDomain({
         domain: domainEditDialog.form.domain,
         name: domainEditDialog.form.name,
         is_default: domainEditDialog.form.is_default ? 1 : 0
@@ -477,7 +482,7 @@ const submitDomainEdit = async () => {
 
 const toggleDomainEnabled = async (row) => {
   try {
-    const res = await api.updateDomain(row.id, { enabled: row.enabled })
+    const res = await apiUpdateDomain(row.id, { enabled: row.enabled })
     if (res.success) {
       ElMessage.success(row.enabled ? '已启用' : '已禁用')
     } else {
@@ -491,7 +496,7 @@ const toggleDomainEnabled = async (row) => {
 
 const setDefaultDomain = async (row) => {
   try {
-    const res = await api.updateDomain(row.id, { is_default: 1 })
+    const res = await apiUpdateDomain(row.id, { is_default: 1 })
     if (res.success) {
       ElMessage.success('已设为默认域名')
       loadDomains()
@@ -501,9 +506,9 @@ const setDefaultDomain = async (row) => {
   } catch {}
 }
 
-const deleteDomain = async (row) => {
+const deleteDomainAction = async (row) => {
   try {
-    const res = await api.deleteDomain(row.id)
+    const res = await apiDeleteDomain(row.id)
     if (res.success) {
       ElMessage.success('域名已删除')
       loadDomains()
