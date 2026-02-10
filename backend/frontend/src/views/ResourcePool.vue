@@ -363,20 +363,22 @@
               </div>
             </el-card>
             <el-card shadow="never" style="margin-top: 16px;">
-              <template #header>注册设置</template>
-              <el-form label-width="80px" size="small">
-                <el-form-item label="注册年限">
-                  <el-select v-model="nmRegisterYears" style="width: 100%;">
-                    <el-option v-for="y in 10" :key="y" :label="`${y}年`" :value="y" />
-                  </el-select>
-                </el-form-item>
-                <el-form-item label="DNS1">
-                  <el-input v-model="nmConfig.default_dns1" placeholder="ns1.domainnamedns.com" />
-                </el-form-item>
-                <el-form-item label="DNS2">
-                  <el-input v-model="nmConfig.default_dns2" placeholder="ns2.domainnamedns.com" />
-                </el-form-item>
-              </el-form>
+              <template #header>
+                <div style="display: flex; justify-content: space-between; align-items: center;">
+                  <span>📋 事件处理进度</span>
+                  <el-button link type="danger" size="small" @click="clearEventLogs" v-if="nmEventLogs.length > 0">清空</el-button>
+                </div>
+              </template>
+              <div class="event-log-container" ref="eventLogRef">
+                <div v-if="nmEventLogs.length === 0" style="color: #909399; font-size: 12px; text-align: center; padding: 20px;">
+                  暂无事件日志
+                </div>
+                <div v-for="(log, index) in nmEventLogs" :key="index" class="event-log-item" :class="log.type">
+                  <span class="log-time">{{ log.time }}</span>
+                  <span class="log-icon">{{ log.icon }}</span>
+                  <span class="log-msg">{{ log.message }}</span>
+                </div>
+              </div>
             </el-card>
           </el-col>
         </el-row>
@@ -1155,6 +1157,27 @@ const nmRegisterResults = ref([])
 const nmRegisterYears = ref(1)
 const nmAddToCloudflare = ref(false)
 
+// 事件日志
+const nmEventLogs = ref([])
+const eventLogRef = ref(null)
+
+const addEventLog = (message, type = 'info') => {
+  const icons = { info: 'ℹ️', success: '✅', error: '❌', warning: '⚠️', loading: '⏳' }
+  const now = new Date()
+  const time = now.toTimeString().slice(0, 8)
+  nmEventLogs.value.push({ time, message, type, icon: icons[type] || 'ℹ️' })
+  // 自动滚动到底部
+  setTimeout(() => {
+    if (eventLogRef.value) {
+      eventLogRef.value.scrollTop = eventLogRef.value.scrollHeight
+    }
+  }, 50)
+}
+
+const clearEventLogs = () => {
+  nmEventLogs.value = []
+}
+
 const nmAvailableCount = computed(() => nmCheckResults.value.filter(r => r.available).length)
 
 const nmConfigDialog = reactive({
@@ -1464,14 +1487,22 @@ const nmCheckDomains = async () => {
   loading.nmCheck = true
   nmCheckResults.value = []
   nmSelectedDomains.value = []
+  
+  const domains = nmQueryText.value.split(/[\s,;\n]+/).filter(d => d.trim())
+  addEventLog(`开始查询 ${domains.length} 个域名...`, 'loading')
+  
   try {
     const res = await apiNmCheckDomains(nmQueryText.value)
     if (res.success) {
       nmCheckResults.value = res.results || []
+      addEventLog(`查询完成：${res.available} 个可注册 / ${res.total} 个`, 'success')
       ElMessage.success(`查询完成：${res.available} 个可注册 / ${res.total} 个`)
     } else {
+      addEventLog(`查询失败: ${res.message}`, 'error')
       ElMessage.error(res.message || '查询失败')
     }
+  } catch (e) {
+    addEventLog(`查询异常: ${e.message || '未知错误'}`, 'error')
   } finally {
     loading.nmCheck = false
   }
@@ -1494,9 +1525,16 @@ const nmRegisterSelected = async () => {
   
   loading.nmRegister = true
   nmRegisterResults.value = []
+  
+  const domainsToRegister = [...nmSelectedDomains.value]
+  addEventLog(`开始注册 ${domainsToRegister.length} 个域名...`, 'loading')
+  if (nmAddToCloudflare.value) {
+    addEventLog(`已启用 Cloudflare 自动添加`, 'info')
+  }
+  
   try {
     const res = await nmRegisterDomains({
-      domains: nmSelectedDomains.value,
+      domains: domainsToRegister,
       years: nmRegisterYears.value,
       add_to_cloudflare: nmAddToCloudflare.value,
       dns1: nmConfig.default_dns1,
@@ -1505,13 +1543,30 @@ const nmRegisterSelected = async () => {
     if (res.success) {
       nmRegisterResults.value = res.results || []
       const summary = res.summary || {}
+      
+      // 输出每个域名的处理结果
+      for (const result of res.results || []) {
+        if (result.success) {
+          let msg = `${result.domain} 注册成功`
+          if (result.cloudflare) msg += ' [已添加到CF]'
+          addEventLog(msg, 'success')
+        } else {
+          addEventLog(`${result.domain} 注册失败: ${result.message}`, 'error')
+        }
+      }
+      
+      addEventLog(`注册完成：${summary.success || 0} 成功，${summary.failed || 0} 失败`, summary.failed > 0 ? 'warning' : 'success')
       ElMessage.success(`注册完成：${summary.success || 0} 成功，${summary.failed || 0} 失败`)
+      
       // 清除已注册的域名
-      nmCheckResults.value = nmCheckResults.value.filter(r => !nmSelectedDomains.value.includes(r.domain))
+      nmCheckResults.value = nmCheckResults.value.filter(r => !domainsToRegister.includes(r.domain))
       nmSelectedDomains.value = []
     } else {
+      addEventLog(`注册失败: ${res.message}`, 'error')
       ElMessage.error(res.message || '注册失败')
     }
+  } catch (e) {
+    addEventLog(`注册异常: ${e.message || '未知错误'}`, 'error')
   } finally {
     loading.nmRegister = false
   }
@@ -1704,5 +1759,76 @@ onMounted(() => {
 .premium-price {
   color: #e6a23c;
   font-weight: bold;
+}
+
+/* 事件日志样式 */
+.event-log-container {
+  height: 260px;
+  overflow-y: auto;
+  background: #f8f9fa;
+  border: 1px solid #e4e7ed;
+  border-radius: 4px;
+  padding: 8px;
+  font-family: 'Consolas', 'Monaco', monospace;
+  font-size: 12px;
+}
+
+.event-log-container::-webkit-scrollbar {
+  width: 6px;
+}
+
+.event-log-container::-webkit-scrollbar-thumb {
+  background: #c0c4cc;
+  border-radius: 3px;
+}
+
+.event-log-item {
+  display: flex;
+  align-items: flex-start;
+  padding: 4px 6px;
+  border-bottom: 1px dashed #e4e7ed;
+}
+
+.event-log-item:last-child {
+  border-bottom: none;
+}
+
+.log-time {
+  color: #909399;
+  margin-right: 8px;
+  white-space: nowrap;
+  font-size: 11px;
+}
+
+.log-icon {
+  margin-right: 6px;
+  font-size: 13px;
+}
+
+.log-message {
+  flex: 1;
+  word-break: break-all;
+  line-height: 1.4;
+}
+
+.log-info .log-icon { color: #409EFF; }
+.log-success .log-icon { color: #67C23A; }
+.log-warning .log-icon { color: #E6A23C; }
+.log-error .log-icon { color: #F56C6C; }
+.log-loading .log-icon { color: #909399; }
+
+.log-info .log-message { color: #409EFF; }
+.log-success .log-message { color: #67C23A; }
+.log-warning .log-message { color: #E6A23C; }
+.log-error .log-message { color: #F56C6C; }
+.log-loading .log-message { color: #909399; }
+
+.empty-log {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  color: #909399;
+  font-size: 13px;
 }
 </style>
