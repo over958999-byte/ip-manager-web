@@ -116,7 +116,12 @@ const api = {
     new_password: newPassword 
   }),
   exportData: () => request.get('?action=export'),
-  importData: (data) => request.post('?action=import', { data })
+  importData: (data) => request.post('?action=import', { data }),
+  
+  // 系统更新
+  checkUpdate: () => request.get('?action=system_check_update'),
+  doUpdate: () => request.post('?action=system_update'),
+  getSystemInfo: () => request.get('?action=system_info')
 }
 
 export default api

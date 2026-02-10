@@ -1151,6 +1151,154 @@ switch ($action) {
         echo json_encode($result);
         break;
 
+    // ==================== 系统更新 API ====================
+    
+    case 'system_check_update':
+        // 检查更新（不需要登录）
+        $repoUrl = 'https://api.github.com/repos/over958999-byte/ip-manager-web/commits/master';
+        $localVersionFile = __DIR__ . '/../../.git/refs/heads/master';
+        
+        $localVersion = '';
+        if (file_exists($localVersionFile)) {
+            $localVersion = trim(file_get_contents($localVersionFile));
+        }
+        
+        // 获取远程最新版本
+        $ch = curl_init();
+        curl_setopt($ch, CURLOPT_URL, $repoUrl);
+        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+        curl_setopt($ch, CURLOPT_USERAGENT, 'IP-Manager-Updater');
+        curl_setopt($ch, CURLOPT_TIMEOUT, 10);
+        $response = curl_exec($ch);
+        $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        curl_close($ch);
+        
+        if ($httpCode !== 200 || !$response) {
+            echo json_encode([
+                'success' => false, 
+                'message' => '无法连接到GitHub，请检查网络'
+            ]);
+            exit;
+        }
+        
+        $data = json_decode($response, true);
+        $remoteVersion = $data['sha'] ?? '';
+        $commitMessage = $data['commit']['message'] ?? '';
+        $commitDate = $data['commit']['committer']['date'] ?? '';
+        
+        $hasUpdate = !empty($remoteVersion) && $remoteVersion !== $localVersion;
+        
+        echo json_encode([
+            'success' => true,
+            'data' => [
+                'has_update' => $hasUpdate,
+                'local_version' => substr($localVersion, 0, 7),
+                'remote_version' => substr($remoteVersion, 0, 7),
+                'commit_message' => $commitMessage,
+                'commit_date' => $commitDate,
+                'current_version' => '1.0.0'
+            ]
+        ]);
+        break;
+
+    case 'system_update':
+        if (!checkLogin()) {
+            echo json_encode(['success' => false, 'message' => '请先登录']);
+            exit;
+        }
+        
+        $installDir = realpath(__DIR__ . '/../..');
+        
+        // 检查是否是git仓库
+        if (!is_dir($installDir . '/.git')) {
+            echo json_encode([
+                'success' => false, 
+                'message' => '当前不是Git仓库，无法自动更新。请手动更新或重新部署。'
+            ]);
+            exit;
+        }
+        
+        // 执行git pull
+        $output = [];
+        $returnVar = 0;
+        
+        // 备份配置文件
+        $configFile = $installDir . '/backend/core/db_config.php';
+        $configBackup = '';
+        if (file_exists($configFile)) {
+            $configBackup = file_get_contents($configFile);
+        }
+        
+        // 切换到项目目录并执行git操作
+        chdir($installDir);
+        
+        // 获取更新
+        exec('git fetch origin 2>&1', $output, $returnVar);
+        if ($returnVar !== 0) {
+            echo json_encode([
+                'success' => false, 
+                'message' => 'Git fetch失败: ' . implode("\n", $output)
+            ]);
+            exit;
+        }
+        
+        // 重置到最新版本
+        $output = [];
+        exec('git reset --hard origin/master 2>&1', $output, $returnVar);
+        if ($returnVar !== 0) {
+            echo json_encode([
+                'success' => false, 
+                'message' => 'Git reset失败: ' . implode("\n", $output)
+            ]);
+            exit;
+        }
+        
+        // 恢复配置文件
+        if (!empty($configBackup)) {
+            file_put_contents($configFile, $configBackup);
+        }
+        
+        // 检查是否需要重新构建前端
+        $needRebuild = false;
+        $frontendDir = $installDir . '/backend/frontend';
+        if (is_dir($frontendDir) && file_exists($frontendDir . '/package.json')) {
+            // 检查node_modules是否存在
+            if (!is_dir($frontendDir . '/node_modules')) {
+                $needRebuild = true;
+            }
+        }
+        
+        echo json_encode([
+            'success' => true, 
+            'message' => '更新成功！' . ($needRebuild ? '前端需要重新构建，请执行 npm install && npm run build' : ''),
+            'need_rebuild' => $needRebuild,
+            'output' => implode("\n", $output)
+        ]);
+        break;
+
+    case 'system_info':
+        // 获取系统信息
+        $installDir = realpath(__DIR__ . '/../..');
+        $localVersionFile = $installDir . '/.git/refs/heads/master';
+        
+        $localVersion = '';
+        if (file_exists($localVersionFile)) {
+            $localVersion = substr(trim(file_get_contents($localVersionFile)), 0, 7);
+        }
+        
+        echo json_encode([
+            'success' => true,
+            'data' => [
+                'version' => '1.0.0',
+                'commit' => $localVersion,
+                'php_version' => PHP_VERSION,
+                'server_software' => $_SERVER['SERVER_SOFTWARE'] ?? 'Unknown',
+                'install_dir' => $installDir,
+                'is_git_repo' => is_dir($installDir . '/.git')
+            ]
+        ]);
+        break;
+
     default:
         echo json_encode(['success' => false, 'message' => '未知操作']);
         break;
