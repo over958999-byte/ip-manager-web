@@ -1504,18 +1504,54 @@ switch ($action) {
         break;
         
     case 'cf_list_zones':
-        // 获取 Cloudflare 域名列表
+        // 获取本系统管理的 Cloudflare 域名列表（从数据库读取）
         $cfConfig = $db->getConfig('cloudflare', []);
         if (empty($cfConfig['api_token'])) {
             echo json_encode(['success' => false, 'message' => '请先配置 Cloudflare API']);
             break;
         }
         
-        require_once __DIR__ . '/../core/cloudflare.php';
-        $cf = new CloudflareService($cfConfig['api_token'], $cfConfig['account_id']);
-        $result = $cf->listZones();
+        // 从数据库获取本系统添加的域名
+        $stmt = $pdo->query("SELECT * FROM cf_domains ORDER BY created_at DESC");
+        $localDomains = $stmt->fetchAll(PDO::FETCH_ASSOC);
         
-        echo json_encode($result);
+        // 如果有域名，从 Cloudflare API 获取最新状态
+        if (!empty($localDomains)) {
+            require_once __DIR__ . '/../core/cloudflare.php';
+            $cf = new CloudflareService($cfConfig['api_token'], $cfConfig['account_id']);
+            
+            $zones = [];
+            foreach ($localDomains as $d) {
+                $zone = [
+                    'id' => $d['zone_id'],
+                    'name' => $d['domain'],
+                    'status' => $d['status'],
+                    'name_servers' => json_decode($d['nameservers'] ?: '[]', true),
+                    'server_ip' => $d['server_ip'],
+                    'https_enabled' => (bool)$d['https_enabled'],
+                    'added_to_pool' => (bool)$d['added_to_pool'],
+                    'created_at' => $d['created_at']
+                ];
+                
+                // 如果有 zone_id，从 Cloudflare 获取最新状态
+                if ($d['zone_id']) {
+                    $cfStatus = $cf->getZoneStatus($d['zone_id']);
+                    if ($cfStatus) {
+                        $zone['status'] = $cfStatus['status'];
+                        $zone['name_servers'] = $cfStatus['name_servers'] ?? $zone['name_servers'];
+                        // 更新数据库状态
+                        $pdo->prepare("UPDATE cf_domains SET status = ?, nameservers = ? WHERE id = ?")
+                            ->execute([$cfStatus['status'], json_encode($cfStatus['name_servers'] ?? []), $d['id']]);
+                    }
+                }
+                
+                $zones[] = $zone;
+            }
+            
+            echo json_encode(['success' => true, 'zones' => $zones, 'total' => count($zones)]);
+        } else {
+            echo json_encode(['success' => true, 'zones' => [], 'total' => 0]);
+        }
         break;
         
     case 'cf_add_domain':
@@ -1551,11 +1587,29 @@ switch ($action) {
         $cf = new CloudflareService($cfConfig['api_token'], $cfConfig['account_id']);
         $result = $cf->quickSetup($domain, $serverIp, $enableHttps);
         
-        // 如果成功且需要添加到域名池
-        if ($result['success'] && $addToDomainPool) {
-            require_once __DIR__ . '/../core/jump.php';
-            $jumpService = new JumpService($db->getPdo());
-            $jumpService->addDomain('https://' . $domain, $domain . ' (Cloudflare)', false);
+        // 如果成功，保存到数据库
+        if ($result['success']) {
+            $rootDomain = $result['root_domain'] ?? $domain;
+            $stmt = $pdo->prepare("INSERT INTO cf_domains (domain, zone_id, status, nameservers, server_ip, https_enabled, added_to_pool) 
+                VALUES (?, ?, ?, ?, ?, ?, ?) 
+                ON DUPLICATE KEY UPDATE zone_id = VALUES(zone_id), status = VALUES(status), nameservers = VALUES(nameservers), 
+                server_ip = VALUES(server_ip), https_enabled = VALUES(https_enabled), added_to_pool = VALUES(added_to_pool), updated_at = NOW()");
+            $stmt->execute([
+                $rootDomain,
+                $result['zone_id'] ?? null,
+                'active',
+                json_encode($result['name_servers'] ?? []),
+                $serverIp,
+                $enableHttps ? 1 : 0,
+                $addToDomainPool ? 1 : 0
+            ]);
+            
+            // 如果需要添加到域名池
+            if ($addToDomainPool) {
+                require_once __DIR__ . '/../core/jump.php';
+                $jumpService = new JumpService($db->getPdo());
+                $jumpService->addDomain('https://' . $rootDomain, $rootDomain . ' (Cloudflare)', false);
+            }
         }
         
         echo json_encode($result);
@@ -1675,10 +1729,27 @@ switch ($action) {
         $rewriteResult = $cf->enableAutomaticHttpsRewrites($zoneId);
         $steps[] = ['step' => '自动 HTTPS 重写', 'success' => $rewriteResult['success']];
         
+        // 更新数据库中的 HTTPS 状态
+        $pdo->prepare("UPDATE cf_domains SET https_enabled = 1 WHERE domain = ?")->execute([$domain]);
+        
         echo json_encode([
             'success' => true,
             'steps' => $steps
         ]);
+        break;
+    
+    case 'cf_remove_domain':
+        // 从本地记录中删除域名（不删除 Cloudflare 上的）
+        $domain = trim($input['domain'] ?? '');
+        if (empty($domain)) {
+            echo json_encode(['success' => false, 'message' => '域名不能为空']);
+            break;
+        }
+        
+        $stmt = $pdo->prepare("DELETE FROM cf_domains WHERE domain = ?");
+        $stmt->execute([$domain]);
+        
+        echo json_encode(['success' => true, 'message' => '域名已从管理列表中移除']);
         break;
 
     // ==================== 域名安全检测 API ====================

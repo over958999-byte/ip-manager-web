@@ -30,6 +30,23 @@ CREATE TABLE IF NOT EXISTS ip_country_cache (
     INDEX idx_updated_at (updated_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='IP地理位置缓存';
 
+-- Cloudflare 域名管理表（记录通过本系统添加的域名）
+CREATE TABLE IF NOT EXISTS cf_domains (
+    id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    domain VARCHAR(255) NOT NULL COMMENT '根域名',
+    zone_id VARCHAR(50) DEFAULT NULL COMMENT 'Cloudflare Zone ID',
+    status VARCHAR(20) DEFAULT 'pending' COMMENT '状态: pending/active/moved/deleted',
+    nameservers JSON DEFAULT NULL COMMENT 'NS服务器列表',
+    server_ip VARCHAR(45) DEFAULT NULL COMMENT '绑定的服务器IP',
+    https_enabled TINYINT(1) DEFAULT 0 COMMENT '是否已开启HTTPS',
+    added_to_pool TINYINT(1) DEFAULT 0 COMMENT '是否已添加到域名池',
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    UNIQUE KEY uk_domain (domain),
+    INDEX idx_zone_id (zone_id),
+    INDEX idx_status (status)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='Cloudflare域名管理';
+
 -- =====================================================
 -- 第二部分: 跳转规则系统
 -- =====================================================

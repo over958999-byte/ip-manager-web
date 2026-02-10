@@ -157,6 +157,22 @@ class CloudflareService {
     }
     
     /**
+     * 获取单个域名的状态
+     */
+    public function getZoneStatus(string $zoneId): ?array {
+        $result = $this->request('GET', "/zones/{$zoneId}");
+        
+        if (isset($result['success']) && $result['success'] && !empty($result['result'])) {
+            return [
+                'status' => $result['result']['status'],
+                'name_servers' => $result['result']['name_servers'] ?? []
+            ];
+        }
+        
+        return null;
+    }
+    
+    /**
      * 获取域名列表
      */
     public function listZones(int $page = 1, int $perPage = 50): array {
@@ -260,6 +276,9 @@ class CloudflareService {
     public function quickSetup(string $domain, string $serverIp, bool $enableHttps = true): array {
         $steps = [];
         
+        // 提取根域名
+        $rootDomain = $this->extractRootDomain($domain);
+        
         // 1. 添加域名
         $zoneResult = $this->addZone($domain);
         if (!$zoneResult['success']) {
@@ -326,6 +345,7 @@ class CloudflareService {
         return [
             'success' => true,
             'zone_id' => $zoneId,
+            'root_domain' => $rootDomain,
             'name_servers' => $zoneResult['name_servers'] ?? [],
             'steps' => $steps
         ];
