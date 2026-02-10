@@ -113,6 +113,11 @@ class JumpService {
             return ['success' => false, 'message' => '域名不能为空'];
         }
         
+        // 自动补全 HTTPS 协议
+        if (!preg_match('/^https?:\/\//i', $domain)) {
+            $domain = 'https://' . $domain;
+        }
+        
         // 检查是否已存在
         $stmt = $this->pdo->prepare("SELECT 1 FROM jump_domains WHERE domain = ?");
         $stmt->execute([$domain]);
@@ -353,6 +358,11 @@ class JumpService {
         if (!$domain) {
             $defaultDomain = $this->getDefaultDomain();
             $domain = $defaultDomain ? $defaultDomain['domain'] : 'http://localhost:8080/j';
+        }
+        
+        // 确保域名有协议前缀
+        if (!preg_match('/^https?:\/\//i', $domain)) {
+            $domain = 'https://' . $domain;
         }
         
         return rtrim($domain, '/') . '/' . $matchKey;
