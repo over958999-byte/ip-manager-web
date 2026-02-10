@@ -234,15 +234,17 @@ class DomainSafetyChecker {
         
         $data = json_decode($response, true);
         
-        if (!$data) {
+        if (!$data || !is_array($data)) {
             return ['status' => 'unknown', 'message' => '响应解析失败'];
         }
         
-        if ($data['query_status'] === 'no_results') {
+        $queryStatus = $data['query_status'] ?? '';
+        
+        if ($queryStatus === 'no_results') {
             return ['status' => 'safe', 'message' => '未发现威胁'];
         }
         
-        if ($data['query_status'] === 'ok' && isset($data['url_count'])) {
+        if ($queryStatus === 'ok' && isset($data['url_count'])) {
             $count = intval($data['url_count']);
             if ($count > 0) {
                 return [
@@ -287,15 +289,17 @@ class DomainSafetyChecker {
         
         $data = json_decode($response, true);
         
-        if (!$data) {
+        if (!$data || !is_array($data)) {
             return ['status' => 'unknown', 'message' => '响应解析失败'];
         }
         
-        if ($data['query_status'] === 'no_result') {
+        $queryStatus = $data['query_status'] ?? '';
+        
+        if ($queryStatus === 'no_result') {
             return ['status' => 'safe', 'message' => '未发现威胁'];
         }
         
-        if ($data['query_status'] === 'ok' && !empty($data['data'])) {
+        if ($queryStatus === 'ok' && !empty($data['data'])) {
             $count = count($data['data']);
             $threats = [];
             foreach (array_slice($data['data'], 0, 3) as $item) {
