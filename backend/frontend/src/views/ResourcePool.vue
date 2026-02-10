@@ -98,8 +98,11 @@
       <!-- 域名池标签页 -->
       <el-tab-pane label="域名池" name="domain">
         <div class="tab-header">
-          <span class="tab-title">域名池列表 ({{ domains.length }} 个)</span>
+          <span class="tab-title">域名池列表 ({{ domains.length }} 个) <span v-if="serverIp" style="color: #909399; font-weight: normal;">服务器IP: {{ serverIp }}</span></span>
           <div class="tab-actions">
+            <el-button size="small" @click="checkDomainsResolve" :loading="loading.checking">
+              <el-icon><Refresh /></el-icon> 检测解析
+            </el-button>
             <el-button type="primary" size="small" @click="showDomainAddDialog">
               <el-icon><Plus /></el-icon> 添加域名
             </el-button>
@@ -109,24 +112,39 @@
         <el-row :gutter="20">
           <el-col :span="16">
             <el-table :data="domains" v-loading="loading.domain" stripe style="width: 100%">
-              <el-table-column label="域名" min-width="200">
+              <el-table-column label="域名" min-width="180">
                 <template #default="{ row }">
                   <span>{{ row.domain.replace(/^https?:\/\//, '') }}</span>
                   <el-tag v-if="row.is_default" type="success" size="small" style="margin-left: 8px;">默认</el-tag>
                 </template>
               </el-table-column>
-              <el-table-column prop="name" label="名称" width="120">
+              <el-table-column prop="name" label="名称" width="100">
                 <template #default="{ row }">
                   {{ row.name || '-' }}
                 </template>
               </el-table-column>
-              <el-table-column label="状态" width="80" align="center">
+              <el-table-column label="解析" width="120" align="center">
+                <template #default="{ row }">
+                  <template v-if="domainStatus[row.id]">
+                    <el-tooltip v-if="domainStatus[row.id].status === 'ok'" content="已正确解析到本服务器" placement="top">
+                      <el-tag type="success" size="small">✓ 正常</el-tag>
+                    </el-tooltip>
+                    <el-tooltip v-else-if="domainStatus[row.id].status === 'wrong_ip'" :content="'解析到: ' + (domainStatus[row.id].resolved_ips || []).join(', ')" placement="top">
+                      <el-tag type="warning" size="small">⚠ IP不匹配</el-tag>
+                    </el-tooltip>
+                    <el-tooltip v-else content="域名未解析" placement="top">
+                      <el-tag type="danger" size="small">✗ 未解析</el-tag>
+                    </el-tooltip>
+                  </template>
+                  <span v-else style="color: #909399;">-</span>
+                </template>
+              </el-table-column>
+              <el-table-column label="启用" width="70" align="center">
                 <template #default="{ row }">
                   <el-switch v-model="row.enabled" :active-value="1" :inactive-value="0" @change="toggleDomainEnabled(row)" />
                 </template>
               </el-table-column>
-              <el-table-column prop="use_count" label="使用数" width="80" align="center" />
-              <el-table-column prop="created_at" label="添加时间" width="180" />
+              <el-table-column prop="use_count" label="使用" width="60" align="center" />
               <el-table-column label="操作" width="150" align="center">
                 <template #default="{ row }">
                   <el-button v-if="!row.is_default" link type="primary" size="small" @click="setDefaultDomain(row)">设默认</el-button>
@@ -242,11 +260,12 @@ import api, {
   getDomains as fetchDomains, 
   addDomain as apiAddDomain, 
   updateDomain as apiUpdateDomain, 
-  deleteDomain as apiDeleteDomain 
+  deleteDomain as apiDeleteDomain,
+  checkAllDomains
 } from '../api'
 
 const activeTab = ref('ip')
-const loading = reactive({ ip: false, domain: false })
+const loading = reactive({ ip: false, domain: false, checking: false })
 const submitting = ref(false)
 
 // ==================== IP池相关 ====================
@@ -386,6 +405,8 @@ const submitIpActivate = async () => {
 
 // ==================== 域名池相关 ====================
 const domains = ref([])
+const domainStatus = ref({})  // 域名解析状态 { id: { status, resolved_ips, is_resolved } }
+const serverIp = ref('')
 const domainForm = reactive({ domain: '', name: '', is_default: false })
 const domainEditDialog = reactive({
   visible: false,
@@ -398,10 +419,29 @@ const loadDomains = async () => {
   try {
     const res = await fetchDomains()
     if (res.success) {
-      domains.value = res.domains || []
+      domains.value = res.data || res.domains || []
     }
   } finally {
     loading.domain = false
+  }
+}
+
+// 检测所有域名解析状态
+const checkDomainsResolve = async () => {
+  loading.checking = true
+  try {
+    const res = await checkAllDomains()
+    if (res.success) {
+      serverIp.value = res.server_ip || ''
+      domainStatus.value = res.data || {}
+      ElMessage.success('检测完成')
+    } else {
+      ElMessage.error(res.message || '检测失败')
+    }
+  } catch {
+    ElMessage.error('检测失败')
+  } finally {
+    loading.checking = false
   }
 }
 

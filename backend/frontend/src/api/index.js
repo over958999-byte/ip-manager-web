@@ -73,6 +73,12 @@ export const updateDomain = (id, data) => request.post('?action=domain_update', 
 // 删除域名
 export const deleteDomain = (id) => request.post('?action=domain_delete', { id })
 
+// 检测域名解析
+export const checkDomain = (domain) => request.get('?action=domain_check', { params: { domain } })
+
+// 批量检测所有域名
+export const checkAllDomains = () => request.get('?action=domain_check_all')
+
 // ==================== 旧版兼容 API ====================
 
 const api = {

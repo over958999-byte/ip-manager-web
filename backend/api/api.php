@@ -1167,6 +1167,105 @@ switch ($action) {
         echo json_encode($result);
         break;
 
+    case 'domain_check':
+        // 检测域名解析状态
+        if (!checkLogin()) {
+            echo json_encode(['success' => false, 'message' => '请先登录']);
+            exit;
+        }
+        
+        $domain = trim($input['domain'] ?? $_GET['domain'] ?? '');
+        if (empty($domain)) {
+            echo json_encode(['success' => false, 'message' => '域名不能为空']);
+            exit;
+        }
+        
+        // 移除协议前缀
+        $domain = preg_replace('#^https?://#', '', $domain);
+        $domain = rtrim($domain, '/');
+        
+        // 获取服务器IP
+        $serverIp = $_SERVER['SERVER_ADDR'] ?? $_SERVER['LOCAL_ADDR'] ?? '';
+        
+        // DNS解析域名
+        $resolvedIps = [];
+        $dnsRecords = @dns_get_record($domain, DNS_A);
+        if ($dnsRecords) {
+            foreach ($dnsRecords as $record) {
+                if (isset($record['ip'])) {
+                    $resolvedIps[] = $record['ip'];
+                }
+            }
+        }
+        
+        // 也尝试gethostbyname
+        $hostIp = @gethostbyname($domain);
+        if ($hostIp !== $domain && !in_array($hostIp, $resolvedIps)) {
+            $resolvedIps[] = $hostIp;
+        }
+        
+        $isResolved = in_array($serverIp, $resolvedIps);
+        
+        echo json_encode([
+            'success' => true,
+            'data' => [
+                'domain' => $domain,
+                'server_ip' => $serverIp,
+                'resolved_ips' => $resolvedIps,
+                'is_resolved' => $isResolved,
+                'status' => $isResolved ? 'ok' : (empty($resolvedIps) ? 'not_resolved' : 'wrong_ip')
+            ]
+        ]);
+        break;
+
+    case 'domain_check_all':
+        // 批量检测所有域名
+        if (!checkLogin()) {
+            echo json_encode(['success' => false, 'message' => '请先登录']);
+            exit;
+        }
+        require_once __DIR__ . '/../core/jump.php';
+        $jump = new JumpService($db->getPdo());
+        
+        $domains = $jump->getDomains(false);
+        $serverIp = $_SERVER['SERVER_ADDR'] ?? $_SERVER['LOCAL_ADDR'] ?? '';
+        $results = [];
+        
+        foreach ($domains as $d) {
+            $domain = preg_replace('#^https?://#', '', $d['domain']);
+            $domain = rtrim($domain, '/');
+            
+            $resolvedIps = [];
+            $dnsRecords = @dns_get_record($domain, DNS_A);
+            if ($dnsRecords) {
+                foreach ($dnsRecords as $record) {
+                    if (isset($record['ip'])) {
+                        $resolvedIps[] = $record['ip'];
+                    }
+                }
+            }
+            
+            $hostIp = @gethostbyname($domain);
+            if ($hostIp !== $domain && !in_array($hostIp, $resolvedIps)) {
+                $resolvedIps[] = $hostIp;
+            }
+            
+            $isResolved = in_array($serverIp, $resolvedIps);
+            
+            $results[$d['id']] = [
+                'resolved_ips' => $resolvedIps,
+                'is_resolved' => $isResolved,
+                'status' => $isResolved ? 'ok' : (empty($resolvedIps) ? 'not_resolved' : 'wrong_ip')
+            ];
+        }
+        
+        echo json_encode([
+            'success' => true,
+            'server_ip' => $serverIp,
+            'data' => $results
+        ]);
+        break;
+
     // ==================== 系统更新 API ====================
     
     case 'system_check_update':
