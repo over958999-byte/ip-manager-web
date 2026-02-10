@@ -49,6 +49,28 @@ function getClientIp() {
     return trim($ip);
 }
 
+// 获取服务器公网IP（优先从配置读取，否则自动检测）
+function getServerPublicIp() {
+    global $db;
+    
+    // 优先从配置读取
+    $config = $db->getConfig('server', []);
+    if (!empty($config['public_ip'])) {
+        return $config['public_ip'];
+    }
+    
+    // 尝试从外部服务获取公网IP
+    $ip = @file_get_contents('https://api.ipify.org?format=text');
+    if ($ip && filter_var(trim($ip), FILTER_VALIDATE_IP, FILTER_FLAG_IPV4 | FILTER_FLAG_NO_PRIV_RANGE)) {
+        // 缓存到配置
+        $db->setConfig('server', ['public_ip' => trim($ip)]);
+        return trim($ip);
+    }
+    
+    // 备用方案：使用 SERVER_ADDR（可能是内网IP）
+    return $_SERVER['SERVER_ADDR'] ?? $_SERVER['LOCAL_ADDR'] ?? '';
+}
+
 // 检查后台访问权限
 function checkAdminAccess() {
     global $db;
@@ -1184,8 +1206,8 @@ switch ($action) {
         $domain = preg_replace('#^https?://#', '', $domain);
         $domain = rtrim($domain, '/');
         
-        // 获取服务器IP
-        $serverIp = $_SERVER['SERVER_ADDR'] ?? $_SERVER['LOCAL_ADDR'] ?? '';
+        // 获取服务器公网IP
+        $serverIp = getServerPublicIp();
         
         // DNS解析域名
         $resolvedIps = [];
@@ -1228,7 +1250,7 @@ switch ($action) {
         $jump = new JumpService($db->getPdo());
         
         $domains = $jump->getDomains(false);
-        $serverIp = $_SERVER['SERVER_ADDR'] ?? $_SERVER['LOCAL_ADDR'] ?? '';
+        $serverIp = getServerPublicIp();
         $results = [];
         
         foreach ($domains as $d) {
@@ -1572,12 +1594,8 @@ switch ($action) {
             break;
         }
         
-        // 动态获取当前服务器公网IP
-        $serverIp = @file_get_contents('https://api.ipify.org') ?: @file_get_contents('https://ifconfig.me/ip');
-        if (empty($serverIp)) {
-            $serverIp = $_SERVER['SERVER_ADDR'] ?? '';
-        }
-        $serverIp = trim($serverIp);
+        // 获取服务器公网IP
+        $serverIp = getServerPublicIp();
         
         if (empty($serverIp)) {
             echo json_encode(['success' => false, 'message' => '无法获取服务器IP']);
@@ -1633,12 +1651,8 @@ switch ($action) {
             break;
         }
         
-        // 动态获取当前服务器公网IP
-        $serverIp = @file_get_contents('https://api.ipify.org') ?: @file_get_contents('https://ifconfig.me/ip');
-        if (empty($serverIp)) {
-            $serverIp = $_SERVER['SERVER_ADDR'] ?? '';
-        }
-        $serverIp = trim($serverIp);
+        // 获取服务器公网IP
+        $serverIp = getServerPublicIp();
         
         if (empty($serverIp)) {
             echo json_encode(['success' => false, 'message' => '无法获取服务器IP']);
