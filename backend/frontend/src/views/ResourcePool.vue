@@ -460,7 +460,7 @@ import api, {
   domainSafetyCheckAll,
   domainSafetyStats
 } from '../api'
-import { Plus, Delete, Refresh, Shield } from '@element-plus/icons-vue'
+import { Plus, Delete, Refresh } from '@element-plus/icons-vue'
 
 const activeTab = ref('ip')
 const loading = reactive({ ip: false, domain: false, checking: false, cf: false, safety: false })
