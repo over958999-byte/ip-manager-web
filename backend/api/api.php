@@ -3111,6 +3111,170 @@ switch ($action) {
             echo json_encode(['success' => false, 'error' => '短链接不存在']);
         }
         break;
+        
+    case 'external_list_domains':
+        // 外部API: 获取域名列表
+        $apiToken = $_SERVER['HTTP_X_API_TOKEN'] ?? $input['api_token'] ?? '';
+        $tokenData = validateApiToken($db, $apiToken, 'shortlink_create');
+        
+        if (!$tokenData['valid']) {
+            http_response_code(401);
+            echo json_encode(['success' => false, 'error' => $tokenData['error']]);
+            exit;
+        }
+        
+        if (!checkApiRateLimit($db, $tokenData['token_id'], $tokenData['rate_limit'])) {
+            http_response_code(429);
+            echo json_encode(['success' => false, 'error' => '请求过于频繁']);
+            exit;
+        }
+        
+        $stmt = $db->query("SELECT id, domain, name, is_default, enabled FROM jump_domains WHERE enabled = 1 ORDER BY is_default DESC, id ASC");
+        $domains = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        
+        // 处理域名格式
+        foreach ($domains as &$d) {
+            $d['is_default'] = (bool)$d['is_default'];
+            $d['enabled'] = (bool)$d['enabled'];
+        }
+        
+        logApiCall($db, $tokenData['token_id'], 'list_domains', $input, 200);
+        
+        echo json_encode([
+            'success' => true,
+            'data' => $domains
+        ]);
+        break;
+        
+    case 'external_get_stats':
+        // 外部API: 获取短链接点击统计
+        $apiToken = $_SERVER['HTTP_X_API_TOKEN'] ?? $input['api_token'] ?? '';
+        $tokenData = validateApiToken($db, $apiToken, 'shortlink_stats');
+        
+        if (!$tokenData['valid']) {
+            http_response_code(401);
+            echo json_encode(['success' => false, 'error' => $tokenData['error']]);
+            exit;
+        }
+        
+        if (!checkApiRateLimit($db, $tokenData['token_id'], $tokenData['rate_limit'])) {
+            http_response_code(429);
+            echo json_encode(['success' => false, 'error' => '请求过于频繁']);
+            exit;
+        }
+        
+        $code = $input['code'] ?? $_GET['code'] ?? '';
+        $id = intval($input['id'] ?? $_GET['id'] ?? 0);
+        
+        if (empty($code) && $id <= 0) {
+            echo json_encode(['success' => false, 'error' => '请提供code或id']);
+            exit;
+        }
+        
+        require_once __DIR__ . '/../core/jump.php';
+        $jump = new JumpService($db->getPdo());
+        
+        if (!empty($code)) {
+            $rule = $jump->getByCode($code);
+        } else {
+            $rule = $jump->getById($id);
+        }
+        
+        if (!$rule) {
+            logApiCall($db, $tokenData['token_id'], 'get_stats', $input, 404);
+            http_response_code(404);
+            echo json_encode(['success' => false, 'error' => '短链接不存在']);
+            exit;
+        }
+        
+        // 获取最近7天的点击趋势 (如果有click_logs表)
+        $dailyStats = [];
+        try {
+            $stmt = $db->prepare("
+                SELECT DATE(created_at) as date, COUNT(*) as clicks 
+                FROM click_logs 
+                WHERE rule_id = ? AND created_at >= DATE_SUB(NOW(), INTERVAL 7 DAY)
+                GROUP BY DATE(created_at)
+                ORDER BY date ASC
+            ");
+            $stmt->execute([$rule['id']]);
+            $dailyStats = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        } catch (Exception $e) {
+            // click_logs表可能不存在，忽略错误
+        }
+        
+        logApiCall($db, $tokenData['token_id'], 'get_stats', $input, 200);
+        
+        echo json_encode([
+            'success' => true,
+            'data' => [
+                'id' => $rule['id'],
+                'code' => $rule['match_key'],
+                'target_url' => $rule['target_url'],
+                'title' => $rule['title'] ?? '',
+                'total_clicks' => (int)($rule['total_clicks'] ?? 0),
+                'unique_visitors' => (int)($rule['unique_visitors'] ?? 0),
+                'enabled' => (bool)$rule['enabled'],
+                'created_at' => $rule['created_at'],
+                'daily_stats' => $dailyStats
+            ]
+        ]);
+        break;
+        
+    case 'external_batch_stats':
+        // 外部API: 批量获取短链接统计
+        $apiToken = $_SERVER['HTTP_X_API_TOKEN'] ?? $input['api_token'] ?? '';
+        $tokenData = validateApiToken($db, $apiToken, 'shortlink_stats');
+        
+        if (!$tokenData['valid']) {
+            http_response_code(401);
+            echo json_encode(['success' => false, 'error' => $tokenData['error']]);
+            exit;
+        }
+        
+        if (!checkApiRateLimit($db, $tokenData['token_id'], $tokenData['rate_limit'])) {
+            http_response_code(429);
+            echo json_encode(['success' => false, 'error' => '请求过于频繁']);
+            exit;
+        }
+        
+        $codes = $input['codes'] ?? [];
+        $ids = $input['ids'] ?? [];
+        
+        if (empty($codes) && empty($ids)) {
+            echo json_encode(['success' => false, 'error' => '请提供codes或ids数组']);
+            exit;
+        }
+        
+        $results = [];
+        
+        if (!empty($codes)) {
+            $placeholders = implode(',', array_fill(0, count($codes), '?'));
+            $stmt = $db->prepare("SELECT id, match_key as code, target_url, title, total_clicks, unique_visitors, enabled, created_at FROM jump_rules WHERE match_key IN ($placeholders)");
+            $stmt->execute($codes);
+            $results = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        } elseif (!empty($ids)) {
+            $placeholders = implode(',', array_fill(0, count($ids), '?'));
+            $stmt = $db->prepare("SELECT id, match_key as code, target_url, title, total_clicks, unique_visitors, enabled, created_at FROM jump_rules WHERE id IN ($placeholders)");
+            $stmt->execute($ids);
+            $results = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        }
+        
+        // 格式化结果
+        foreach ($results as &$r) {
+            $r['total_clicks'] = (int)$r['total_clicks'];
+            $r['unique_visitors'] = (int)$r['unique_visitors'];
+            $r['enabled'] = (bool)$r['enabled'];
+        }
+        
+        logApiCall($db, $tokenData['token_id'], 'batch_stats', $input, 200);
+        
+        echo json_encode([
+            'success' => true,
+            'data' => $results,
+            'count' => count($results)
+        ]);
+        break;
 
     default:
         echo json_encode(['success' => false, 'message' => '未知操作']);

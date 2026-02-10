@@ -152,6 +152,65 @@ Header: X-API-Token: YOUR_TOKEN</pre>
 Header: X-API-Token: YOUR_TOKEN
 Body: {"code": "abc123"}</pre>
         </el-collapse-item>
+
+        <el-collapse-item title="获取域名列表 (external_list_domains)" name="domains">
+          <p><strong>权限要求：</strong> shortlink_create</p>
+          <p><strong>请求方式：</strong> GET/POST</p>
+          <p><strong>说明：</strong> 获取可用的域名列表，用于创建短链接时选择域名</p>
+          <pre class="code-block">GET {{ apiBaseUrl }}?action=external_list_domains
+Header: X-API-Token: YOUR_TOKEN</pre>
+          <p style="margin-top: 10px;"><strong>响应示例：</strong></p>
+          <pre class="code-block">{
+  "success": true,
+  "data": [
+    {"id": 1, "domain": "https://example.com", "name": "主域名", "is_default": true, "enabled": true},
+    {"id": 2, "domain": "https://short.cc", "name": "短链域名", "is_default": false, "enabled": true}
+  ]
+}</pre>
+        </el-collapse-item>
+
+        <el-collapse-item title="获取点击统计 (external_get_stats)" name="stats">
+          <p><strong>权限要求：</strong> shortlink_stats</p>
+          <p><strong>请求方式：</strong> GET/POST</p>
+          <p><strong>请求参数：</strong> code (短码) 或 id (规则ID)</p>
+          <pre class="code-block">GET {{ apiBaseUrl }}?action=external_get_stats&code=abc123
+Header: X-API-Token: YOUR_TOKEN</pre>
+          <p style="margin-top: 10px;"><strong>响应示例：</strong></p>
+          <pre class="code-block">{
+  "success": true,
+  "data": {
+    "id": 1,
+    "code": "abc123",
+    "target_url": "https://example.com",
+    "total_clicks": 100,
+    "unique_visitors": 80,
+    "enabled": true,
+    "created_at": "2026-02-10 12:00:00",
+    "daily_stats": [
+      {"date": "2026-02-10", "clicks": 50},
+      {"date": "2026-02-11", "clicks": 50}
+    ]
+  }
+}</pre>
+        </el-collapse-item>
+
+        <el-collapse-item title="批量获取统计 (external_batch_stats)" name="batch">
+          <p><strong>权限要求：</strong> shortlink_stats</p>
+          <p><strong>请求方式：</strong> POST</p>
+          <p><strong>请求参数：</strong> codes (短码数组) 或 ids (ID数组)</p>
+          <pre class="code-block">POST {{ apiBaseUrl }}?action=external_batch_stats
+Header: X-API-Token: YOUR_TOKEN
+Body: {"codes": ["abc123", "def456", "ghi789"]}</pre>
+          <p style="margin-top: 10px;"><strong>响应示例：</strong></p>
+          <pre class="code-block">{
+  "success": true,
+  "data": [
+    {"id": 1, "code": "abc123", "total_clicks": 100, "unique_visitors": 80},
+    {"id": 2, "code": "def456", "total_clicks": 50, "unique_visitors": 40}
+  ],
+  "count": 2
+}</pre>
+        </el-collapse-item>
       </el-collapse>
     </el-card>
 
