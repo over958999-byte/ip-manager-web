@@ -80,18 +80,22 @@ echo "   - 已预热 " . count($groups) . " 个分组\n";
 
 // 5. 预热常见IP地理位置
 echo "5. 预热IP地理位置缓存...\n";
-$stmt = $pdo->query("
-    SELECT ip, country_code FROM ip_country_cache 
-    ORDER BY updated_at DESC 
-    LIMIT 10000
-");
+try {
+    $stmt = $pdo->query("
+        SELECT ip, country_code FROM ip_country_cache 
+        ORDER BY cached_at DESC 
+        LIMIT 10000
+    ");
 
-$geoCount = 0;
-while ($row = $stmt->fetch(PDO::FETCH_ASSOC)) {
-    $cache->set("geo:{$row['ip']}", $row['country_code'], 3600);
-    $geoCount++;
+    $geoCount = 0;
+    while ($row = $stmt->fetch(PDO::FETCH_ASSOC)) {
+        $cache->set("geo:{$row['ip']}", $row['country_code'], 3600);
+        $geoCount++;
+    }
+    echo "   - 已预热 {$geoCount} 条地理位置缓存\n";
+} catch (Exception $e) {
+    echo "   - 跳过地理位置缓存预热 (表结构不兼容)\n";
 }
-echo "   - 已预热 {$geoCount} 条地理位置缓存\n";
 
 // 输出统计
 echo "\n=== 缓存预热完成 ===\n";
