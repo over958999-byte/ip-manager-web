@@ -293,27 +293,29 @@ class SystemController extends BaseController
         ];
         
         try {
+            $pdo = $this->pdo();
+            
             // 测试数据库连接
-            $this->db->query("SELECT 1");
+            $pdo->query("SELECT 1");
             $dbStatus['connected'] = true;
             
             // 获取数据库大小
-            $result = $this->db->query("SELECT SUM(data_length + index_length) as size FROM information_schema.tables WHERE table_schema = DATABASE()");
-            if ($result && $row = $result->fetch_assoc()) {
+            $stmt = $pdo->query("SELECT SUM(data_length + index_length) as size FROM information_schema.tables WHERE table_schema = DATABASE()");
+            if ($stmt && $row = $stmt->fetch(PDO::FETCH_ASSOC)) {
                 $dbStatus['size'] = (int)($row['size'] ?? 0);
             }
             
             // 获取进程列表统计
-            $processResult = $this->db->query("SHOW PROCESSLIST");
-            if ($processResult) {
-                $dbStatus['connections'] = $processResult->num_rows;
+            $processStmt = $pdo->query("SHOW PROCESSLIST");
+            if ($processStmt) {
+                $dbStatus['connections'] = $processStmt->rowCount();
             }
             
             // 获取状态变量
-            $statusResult = $this->db->query("SHOW GLOBAL STATUS WHERE Variable_name IN ('Queries', 'Slow_queries', 'Uptime')");
-            if ($statusResult) {
+            $statusStmt = $pdo->query("SHOW GLOBAL STATUS WHERE Variable_name IN ('Queries', 'Slow_queries', 'Uptime')");
+            if ($statusStmt) {
                 $statusVars = [];
-                while ($row = $statusResult->fetch_assoc()) {
+                while ($row = $statusStmt->fetch(PDO::FETCH_ASSOC)) {
                     $statusVars[$row['Variable_name']] = $row['Value'];
                 }
                 $uptime = (int)($statusVars['Uptime'] ?? 1);
