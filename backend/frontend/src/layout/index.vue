@@ -17,6 +17,10 @@
           <el-icon><Odometer /></el-icon>
           <template #title>仪表盘</template>
         </el-menu-item>
+        <el-menu-item index="/data-dashboard">
+          <el-icon><DataAnalysis /></el-icon>
+          <template #title>数据大盘</template>
+        </el-menu-item>
         <el-menu-item index="/jump-rules">
           <el-icon><Promotion /></el-icon>
           <template #title>跳转管理</template>
@@ -33,10 +37,34 @@
           <el-icon><Connection /></el-icon>
           <template #title>API管理</template>
         </el-menu-item>
-        <el-menu-item index="/settings">
-          <el-icon><Setting /></el-icon>
-          <template #title>系统设置</template>
-        </el-menu-item>
+        
+        <!-- 系统管理分组 -->
+        <el-sub-menu index="system">
+          <template #title>
+            <el-icon><Tools /></el-icon>
+            <span>系统管理</span>
+          </template>
+          <el-menu-item index="/users">
+            <el-icon><User /></el-icon>
+            <template #title>用户管理</template>
+          </el-menu-item>
+          <el-menu-item index="/webhooks">
+            <el-icon><Bell /></el-icon>
+            <template #title>Webhook通知</template>
+          </el-menu-item>
+          <el-menu-item index="/backups">
+            <el-icon><FolderOpened /></el-icon>
+            <template #title>备份管理</template>
+          </el-menu-item>
+          <el-menu-item index="/audit-logs">
+            <el-icon><Document /></el-icon>
+            <template #title>审计日志</template>
+          </el-menu-item>
+          <el-menu-item index="/settings">
+            <el-icon><Setting /></el-icon>
+            <template #title>系统设置</template>
+          </el-menu-item>
+        </el-sub-menu>
       </el-menu>
     </el-aside>
 
