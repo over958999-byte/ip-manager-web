@@ -1,14 +1,14 @@
 # 困King分发平台 - CI/CD 自动化流水线
-# 触发条件：push/PR 到 main/develop 分支
+# 触发条件：push/PR 到 main/master/develop 分支
 
 name: CI/CD Pipeline
 
 on:
   push:
-    branches: [main, develop]
+    branches: [main, master, develop]
     tags: ['v*']
   pull_request:
-    branches: [main, develop]
+    branches: [main, master, develop]
 
 env:
   PHP_VERSION: '8.2'
@@ -277,10 +277,10 @@ jobs:
     name: Deploy to Staging
     runs-on: ubuntu-latest
     needs: docker-build
-    if: github.ref == 'refs/heads/develop'
+    if: github.ref == 'refs/heads/develop' || github.ref == 'refs/heads/master' || github.ref == 'refs/heads/main'
     environment:
       name: staging
-      url: https://staging.example.com
+      url: http://43.157.159.31
     
     steps:
       - name: Deploy to staging server
@@ -290,10 +290,28 @@ jobs:
           username: ${{ secrets.STAGING_USER }}
           key: ${{ secrets.STAGING_SSH_KEY }}
           script: |
+            # 确保目录存在
+            mkdir -p /opt/ip-manager
             cd /opt/ip-manager
-            docker compose pull
-            docker compose up -d
-            docker system prune -f
+            
+            # 如果是 Docker 部署
+            if [ -f docker-compose.yml ]; then
+              docker compose pull
+              docker compose up -d
+              docker system prune -f
+            fi
+            
+            # 如果是 Git 部署（直接拉取代码）
+            if [ -d .git ]; then
+              git fetch origin
+              git reset --hard origin/master
+              # 重启服务
+              if [ -f /etc/systemd/system/ip-manager.service ]; then
+                sudo systemctl restart ip-manager
+              fi
+            fi
+            
+            echo "部署完成: $(date)"
 
   # ============================================
   # 部署到生产环境（需手动批准）
