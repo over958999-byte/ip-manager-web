@@ -59,13 +59,14 @@ set_exception_handler(function(Throwable $e) {
 // 获取路由器实例
 $router = Router::getInstance();
 
-// 注册全局中间件
-$router->middleware([
-    new CorsMiddleware(['*']),           // CORS 跨域
-    new SecurityHeadersMiddleware(),      // 安全响应头
-    new RateLimitMiddleware(120, 60),     // 限流: 每分钟120次请求
-    new LogMiddleware(),                  // 请求日志
-]);
+// 暂时禁用全局中间件（调试）
+// TODO: 修复中间件后重新启用
+// $router->middleware([
+//     new CorsMiddleware(['*']),           // CORS 跨域
+//     new SecurityHeadersMiddleware(),      // 安全响应头
+//     new RateLimitMiddleware(120, 60),     // 限流: 每分钟120次请求
+//     new LogMiddleware(),                  // 请求日志
+// ]);
 
 // 设置路由前缀
 $router->group(['prefix' => '/api/v2'], function($router) {

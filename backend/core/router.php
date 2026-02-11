@@ -251,10 +251,17 @@ class Router {
             array_reverse($middleware),
             function($next, $middleware) {
                 return function() use ($next, $middleware) {
+                    // 中间件是对象实例
+                    if (is_object($middleware) && method_exists($middleware, 'handle')) {
+                        return $middleware->handle($next);
+                    }
+                    // 中间件是类名字符串
                     if (is_string($middleware) && class_exists($middleware)) {
                         $instance = Container::getInstance()->make($middleware);
                         return $instance->handle($next);
-                    } elseif (is_callable($middleware)) {
+                    }
+                    // 中间件是可调用函数
+                    if (is_callable($middleware)) {
                         return $middleware($next);
                     }
                     return $next();
