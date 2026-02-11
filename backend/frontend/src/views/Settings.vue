@@ -49,6 +49,97 @@
             </el-upload>
           </div>
         </el-card>
+
+        <!-- TOTP 双因素认证 -->
+        <el-card style="margin-top: 20px;">
+          <template #header>
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+              <span>🔐 双因素认证 (2FA)</span>
+              <el-tag :type="totpStatus.enabled ? 'success' : 'info'" size="small">
+                {{ totpStatus.enabled ? '已启用' : '未启用' }}
+              </el-tag>
+            </div>
+          </template>
+          
+          <el-alert 
+            v-if="!totpStatus.enabled"
+            title="开启双因素认证可大幅提升账户安全性" 
+            type="info" 
+            :closable="false"
+            show-icon
+            style="margin-bottom: 16px"
+          />
+          
+          <!-- 未启用状态 -->
+          <div v-if="!totpStatus.enabled && !totpSetup.showQrCode">
+            <p style="color: #666; margin-bottom: 16px;">
+              使用 Google Authenticator、Microsoft Authenticator 或其他兼容的应用扫描二维码即可设置。
+            </p>
+            <el-button type="primary" @click="setupTotp" :loading="totpLoading">
+              <el-icon><Lock /></el-icon> 启用双因素认证
+            </el-button>
+          </div>
+          
+          <!-- 显示二维码 -->
+          <div v-if="totpSetup.showQrCode" class="totp-setup">
+            <el-steps :active="totpSetup.step" align-center style="margin-bottom: 20px;">
+              <el-step title="扫描二维码" />
+              <el-step title="验证代码" />
+              <el-step title="完成" />
+            </el-steps>
+            
+            <div v-if="totpSetup.step === 0" class="qr-code-container">
+              <p style="margin-bottom: 16px; color: #666;">
+                请使用 Authenticator App 扫描以下二维码：
+              </p>
+              <div class="qr-code-wrapper">
+                <img :src="totpSetup.qrCodeUrl" alt="TOTP QR Code" style="width: 200px; height: 200px;" />
+              </div>
+              <p style="margin-top: 16px; color: #999; font-size: 12px;">
+                或手动输入密钥：<code style="background: #f5f5f5; padding: 4px 8px; border-radius: 4px;">{{ totpSetup.secret }}</code>
+              </p>
+              <el-button type="primary" style="margin-top: 16px;" @click="totpSetup.step = 1">
+                下一步：验证代码
+              </el-button>
+            </div>
+            
+            <div v-if="totpSetup.step === 1" class="verify-code-container">
+              <p style="margin-bottom: 16px; color: #666;">
+                请输入 Authenticator App 显示的 6 位验证码：
+              </p>
+              <el-input
+                v-model="totpSetup.verifyCode"
+                placeholder="输入6位验证码"
+                maxlength="6"
+                style="width: 200px; font-size: 24px; letter-spacing: 8px;"
+                @keyup.enter="verifyAndEnableTotp"
+              />
+              <div style="margin-top: 16px;">
+                <el-button @click="totpSetup.step = 0">上一步</el-button>
+                <el-button type="primary" @click="verifyAndEnableTotp" :loading="totpLoading">
+                  验证并启用
+                </el-button>
+              </div>
+            </div>
+          </div>
+          
+          <!-- 已启用状态 -->
+          <div v-if="totpStatus.enabled">
+            <el-descriptions :column="1" border size="small">
+              <el-descriptions-item label="状态">
+                <el-tag type="success">已启用</el-tag>
+              </el-descriptions-item>
+              <el-descriptions-item label="绑定时间">
+                {{ totpStatus.bound_at || '-' }}
+              </el-descriptions-item>
+            </el-descriptions>
+            <el-divider />
+            <p style="color: #f56c6c; margin-bottom: 12px;">⚠️ 关闭双因素认证将降低账户安全性</p>
+            <el-button type="danger" @click="showDisableTotp">
+              <el-icon><Unlock /></el-icon> 关闭双因素认证
+            </el-button>
+          </div>
+        </el-card>
       </el-col>
 
       <el-col :span="12">
@@ -134,13 +225,28 @@ import { ref, reactive, onMounted, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useUserStore } from '../stores/user'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import api from '../api'
+import api, { getTotpStatus, enableTotp, verifyTotp, disableTotp } from '../api'
 
 const router = useRouter()
 const userStore = useUserStore()
 const passwordFormRef = ref(null)
 const submitting = ref(false)
 const currentTime = ref('')
+
+// TOTP 相关状态
+const totpLoading = ref(false)
+const totpStatus = reactive({
+  enabled: false,
+  configured: false,
+  bound_at: ''
+})
+const totpSetup = reactive({
+  showQrCode: false,
+  qrCodeUrl: '',
+  secret: '',
+  verifyCode: '',
+  step: 0
+})
 
 // 更新相关
 const checkingUpdate = ref(false)
@@ -269,6 +375,100 @@ const logout = async () => {
   router.push('/login')
 }
 
+// ==================== TOTP 双因素认证 ====================
+
+// 获取 TOTP 状态
+const fetchTotpStatus = async () => {
+  try {
+    const res = await getTotpStatus()
+    if (res.success) {
+      Object.assign(totpStatus, res.data)
+    }
+  } catch (error) {
+    console.error('获取TOTP状态失败', error)
+  }
+}
+
+// 开始设置 TOTP
+const setupTotp = async () => {
+  totpLoading.value = true
+  try {
+    const res = await enableTotp()
+    if (res.success) {
+      totpSetup.showQrCode = true
+      totpSetup.qrCodeUrl = res.data.qr_code_url || `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(res.data.uri)}`
+      totpSetup.secret = res.data.secret
+      totpSetup.step = 0
+      totpSetup.verifyCode = ''
+    } else {
+      ElMessage.error(res.message || '获取TOTP密钥失败')
+    }
+  } catch (error) {
+    ElMessage.error('获取TOTP密钥失败')
+  } finally {
+    totpLoading.value = false
+  }
+}
+
+// 验证并启用 TOTP
+const verifyAndEnableTotp = async () => {
+  if (totpSetup.verifyCode.length !== 6) {
+    ElMessage.warning('请输入6位验证码')
+    return
+  }
+  
+  totpLoading.value = true
+  try {
+    const res = await verifyTotp(totpSetup.verifyCode)
+    if (res.success) {
+      totpSetup.step = 2
+      ElMessage.success('双因素认证已启用！')
+      totpSetup.showQrCode = false
+      totpStatus.enabled = true
+      totpStatus.bound_at = new Date().toLocaleString('zh-CN')
+    } else {
+      ElMessage.error(res.message || '验证码错误')
+    }
+  } catch (error) {
+    ElMessage.error('验证失败')
+  } finally {
+    totpLoading.value = false
+  }
+}
+
+// 关闭 TOTP
+const showDisableTotp = async () => {
+  try {
+    const { value } = await ElMessageBox.prompt(
+      '请输入当前的 6 位验证码以确认关闭双因素认证',
+      '关闭双因素认证',
+      {
+        confirmButtonText: '确认关闭',
+        cancelButtonText: '取消',
+        inputPattern: /^\d{6}$/,
+        inputErrorMessage: '请输入6位数字验证码',
+        type: 'warning'
+      }
+    )
+    
+    totpLoading.value = true
+    const res = await disableTotp(value)
+    if (res.success) {
+      ElMessage.success('双因素认证已关闭')
+      totpStatus.enabled = false
+      totpStatus.configured = false
+    } else {
+      ElMessage.error(res.message || '关闭失败，验证码可能错误')
+    }
+  } catch (error) {
+    if (error !== 'cancel') {
+      ElMessage.error('操作失败')
+    }
+  } finally {
+    totpLoading.value = false
+  }
+}
+
 // 检查更新
 const checkUpdate = async () => {
   checkingUpdate.value = true
@@ -357,6 +557,7 @@ onMounted(() => {
   // 获取系统信息和检查更新
   fetchSystemInfo()
   checkUpdate()
+  fetchTotpStatus()
 })
 
 onUnmounted(() => {
@@ -367,5 +568,22 @@ onUnmounted(() => {
 <style scoped>
 .settings-page {
   padding: 0;
+}
+
+.totp-setup {
+  text-align: center;
+}
+
+.qr-code-wrapper {
+  display: inline-block;
+  padding: 16px;
+  background: #fff;
+  border: 1px solid #eee;
+  border-radius: 8px;
+}
+
+.verify-code-container :deep(.el-input__inner) {
+  text-align: center;
+  font-family: 'Courier New', monospace;
 }
 </style>
