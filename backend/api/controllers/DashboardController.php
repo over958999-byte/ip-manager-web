@@ -14,12 +14,12 @@ class DashboardController extends BaseController
     {
         $this->requireLogin();
         
-        // 跳转规则统计
+        // 跳转规则统计 - 使用 status='active' 和 visit_count
         $jumpStats = $this->db->fetch(
             "SELECT 
                 COUNT(*) as total,
-                SUM(CASE WHEN enabled = 1 THEN 1 ELSE 0 END) as active,
-                COALESCE(SUM(total_clicks), 0) as total_clicks
+                SUM(CASE WHEN status = 'active' THEN 1 ELSE 0 END) as active,
+                COALESCE(SUM(visit_count), 0) as total_clicks
             FROM jump_rules"
         ) ?: ['total' => 0, 'active' => 0, 'total_clicks' => 0];
         
@@ -32,12 +32,12 @@ class DashboardController extends BaseController
             FROM short_links"
         ) ?: ['total' => 0, 'active' => 0, 'total_clicks' => 0];
         
-        // 域名统计 (表名是 jump_domains)
+        // 域名统计 (表名是 jump_domains) - 使用 status='active'
         $domainStats = $this->db->fetch(
             "SELECT 
                 COUNT(*) as total,
-                SUM(CASE WHEN enabled = 1 THEN 1 ELSE 0 END) as active,
-                0 as cf_enabled
+                SUM(CASE WHEN status = 'active' THEN 1 ELSE 0 END) as active,
+                SUM(CASE WHEN ssl_enabled = 1 THEN 1 ELSE 0 END) as cf_enabled
             FROM jump_domains"
         ) ?: ['total' => 0, 'active' => 0, 'cf_enabled' => 0];
         
@@ -121,14 +121,14 @@ class DashboardController extends BaseController
             ];
         }
         
-        // 地区分布统计
+        // 地区分布统计 - 注意: 字段名是 country_code 不是 country
         $regionStats = $this->db->fetchAll(
             "SELECT 
-                COALESCE(country, 'Unknown') as name,
+                COALESCE(country_code, 'Unknown') as name,
                 COUNT(*) as value
             FROM jump_logs 
             WHERE visited_at >= DATE_SUB(NOW(), INTERVAL 7 DAY)
-            GROUP BY country
+            GROUP BY country_code
             ORDER BY value DESC
             LIMIT 10"
         );
@@ -137,14 +137,14 @@ class DashboardController extends BaseController
             $regionStats = [['name' => 'Unknown', 'value' => 0]];
         }
         
-        // 热门规则统计
+        // 热门规则统计 - 使用 visit_count 和 status='active'
         $topRules = $this->db->fetchAll(
             "SELECT 
-                COALESCE(name, code) as name,
-                total_clicks as value
+                COALESCE(name, source_path) as name,
+                visit_count as value
             FROM jump_rules 
-            WHERE enabled = 1
-            ORDER BY total_clicks DESC
+            WHERE status = 'active'
+            ORDER BY visit_count DESC
             LIMIT 10"
         );
         
