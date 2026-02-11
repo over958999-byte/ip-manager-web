@@ -215,8 +215,20 @@ export const checkAllDomains = () => request.get('?action=domain_check_all')
 // ==================== 旧版兼容 API ====================
 
 const api = {
-  // 通用请求方法 - 禁用重复请求取消，避免快速操作被意外取消
-  request: (data) => request.post('', data, { cancelDuplicate: false }),
+  // 通用请求方法 - 支持两种调用方式：
+  // 1. api.request({ action: 'xxx', ... }) 
+  // 2. api.request('action', { ... })
+  request: (actionOrData, params = {}) => {
+    let data
+    if (typeof actionOrData === 'string') {
+      // 兼容旧调用方式: api.request('action_name', { param1: val1 })
+      data = { action: actionOrData, ...params }
+    } else {
+      // 新调用方式: api.request({ action: 'action_name', ... })
+      data = actionOrData
+    }
+    return request.post('', data, { cancelDuplicate: false })
+  },
   
   // 登录相关
   login: (username, password) => request.post('?action=login', { username, password }),
