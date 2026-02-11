@@ -295,33 +295,47 @@ class SystemController extends BaseController
         try {
             $pdo = $this->pdo();
             
-            // 测试数据库连接
-            $pdo->query("SELECT 1");
-            $dbStatus['connected'] = true;
-            
-            // 获取数据库大小
-            $stmt = $pdo->query("SELECT SUM(data_length + index_length) as size FROM information_schema.tables WHERE table_schema = DATABASE()");
-            if ($stmt && $row = $stmt->fetch(PDO::FETCH_ASSOC)) {
-                $dbStatus['size'] = (int)($row['size'] ?? 0);
+            // 测试数据库连接 - 这是最基础的测试
+            $result = $pdo->query("SELECT 1 as test");
+            if ($result && $result->fetch()) {
+                $dbStatus['connected'] = true;
             }
             
-            // 获取进程列表统计
-            $processStmt = $pdo->query("SHOW PROCESSLIST");
-            if ($processStmt) {
-                $dbStatus['connections'] = $processStmt->rowCount();
-            }
-            
-            // 获取状态变量
-            $statusStmt = $pdo->query("SHOW GLOBAL STATUS WHERE Variable_name IN ('Queries', 'Slow_queries', 'Uptime')");
-            if ($statusStmt) {
-                $statusVars = [];
-                while ($row = $statusStmt->fetch(PDO::FETCH_ASSOC)) {
-                    $statusVars[$row['Variable_name']] = $row['Value'];
+            // 获取数据库大小（可能需要权限）
+            try {
+                $stmt = $pdo->query("SELECT SUM(data_length + index_length) as size FROM information_schema.tables WHERE table_schema = DATABASE()");
+                if ($stmt && $row = $stmt->fetch(PDO::FETCH_ASSOC)) {
+                    $dbStatus['size'] = (int)($row['size'] ?? 0);
                 }
-                $uptime = (int)($statusVars['Uptime'] ?? 1);
-                $queries = (int)($statusVars['Queries'] ?? 0);
-                $dbStatus['queries_per_min'] = $uptime > 0 ? round($queries / ($uptime / 60)) : 0;
-                $dbStatus['slow_queries'] = (int)($statusVars['Slow_queries'] ?? 0);
+            } catch (Exception $e) {
+                // 忽略权限不足的错误
+            }
+            
+            // 获取连接数（可能需要权限）
+            try {
+                $stmt = $pdo->query("SHOW STATUS LIKE 'Threads_connected'");
+                if ($stmt && $row = $stmt->fetch(PDO::FETCH_ASSOC)) {
+                    $dbStatus['connections'] = (int)($row['Value'] ?? 0);
+                }
+            } catch (Exception $e) {
+                // 忽略权限不足的错误
+            }
+            
+            // 获取查询统计（可能需要权限）
+            try {
+                $statusStmt = $pdo->query("SHOW GLOBAL STATUS WHERE Variable_name IN ('Queries', 'Slow_queries', 'Uptime')");
+                if ($statusStmt) {
+                    $statusVars = [];
+                    while ($row = $statusStmt->fetch(PDO::FETCH_ASSOC)) {
+                        $statusVars[$row['Variable_name']] = $row['Value'];
+                    }
+                    $uptime = (int)($statusVars['Uptime'] ?? 1);
+                    $queries = (int)($statusVars['Queries'] ?? 0);
+                    $dbStatus['queries_per_min'] = $uptime > 0 ? round($queries / ($uptime / 60)) : 0;
+                    $dbStatus['slow_queries'] = (int)($statusVars['Slow_queries'] ?? 0);
+                }
+            } catch (Exception $e) {
+                // 忽略权限不足的错误
             }
         } catch (Exception $e) {
             $dbStatus['error'] = $e->getMessage();
@@ -334,17 +348,29 @@ class SystemController extends BaseController
             'hit_rate' => 0,
             'memory_used' => 0,
             'memory_total' => 0,
-            'keys' => 0
+            'keys' => 0,
+            'error' => null
         ];
         
         // 检查 Redis
         if (class_exists('Redis')) {
             try {
                 $redis = new Redis();
-                $redisHost = getenv('REDIS_HOST') ?: '127.0.0.1';
-                $redisPort = getenv('REDIS_PORT') ?: 6379;
+                // Docker 环境中服务名是 redis，本地是 127.0.0.1
+                $redisHost = getenv('REDIS_HOST') ?: 'redis';
+                $redisPort = (int)(getenv('REDIS_PORT') ?: 6379);
+                $redisPassword = getenv('REDIS_PASSWORD') ?: '';
                 
-                if (@$redis->connect($redisHost, (int)$redisPort, 1)) {
+                // 连接超时1秒
+                if (@$redis->connect($redisHost, $redisPort, 1)) {
+                    // 如果设置了密码，进行认证
+                    if (!empty($redisPassword)) {
+                        $redis->auth($redisPassword);
+                    }
+                    
+                    // 测试连接
+                    $redis->ping();
+                    
                     $cacheStatus['enabled'] = true;
                     $cacheStatus['type'] = 'Redis';
                     
@@ -362,8 +388,11 @@ class SystemController extends BaseController
                     $redis->close();
                 }
             } catch (Exception $e) {
-                // Redis 不可用，忽略
+                // Redis 连接失败，记录错误
+                $cacheStatus['error'] = 'Redis: ' . $e->getMessage();
             }
+        } else {
+            $cacheStatus['error'] = 'Redis扩展未安装';
         }
         
         // 如果 Redis 不可用，检查 APCu

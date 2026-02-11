@@ -147,8 +147,8 @@
           <template #header>
             <div style="display: flex; justify-content: space-between; align-items: center;">
               <span>🗄️ 缓存状态</span>
-              <el-tag :type="cacheStatus.enabled ? 'success' : 'info'" size="small">
-                {{ cacheStatus.type || '未启用' }}
+              <el-tag :type="cacheStatus.enabled ? 'success' : (cacheStatus.error ? 'danger' : 'info')" size="small">
+                {{ cacheStatus.enabled ? cacheStatus.type : (cacheStatus.error ? '连接失败' : '未启用') }}
               </el-tag>
             </div>
           </template>
@@ -165,6 +165,9 @@
               {{ formatBytes(cacheStatus.memory_used) }} / {{ formatBytes(cacheStatus.memory_total) }}
             </el-descriptions-item>
             <el-descriptions-item label="Key 数量">{{ cacheStatus.keys || 0 }}</el-descriptions-item>
+            <el-descriptions-item label="错误信息" v-if="cacheStatus.error">
+              <el-text type="danger" size="small">{{ cacheStatus.error }}</el-text>
+            </el-descriptions-item>
           </el-descriptions>
         </el-card>
       </el-col>
@@ -241,7 +244,8 @@ const cacheStatus = ref({
   hit_rate: 0,
   memory_used: 0,
   memory_total: 0,
-  keys: 0
+  keys: 0,
+  error: null
 })
 
 const dbStatus = ref({
@@ -351,7 +355,8 @@ const loadSystemMetrics = async () => {
           hit_rate: data.cache.hit_rate || 0,
           memory_used: data.cache.memory_used || 0,
           memory_total: data.cache.memory_total || 0,
-          keys: data.cache.keys || 0
+          keys: data.cache.keys || 0,
+          error: data.cache.error || null
         }
       }
       
@@ -362,7 +367,8 @@ const loadSystemMetrics = async () => {
           connections: data.database.connections || 0,
           queries_per_min: data.database.queries_per_min || 0,
           slow_queries: data.database.slow_queries || 0,
-          size: data.database.size || 0
+          size: data.database.size || 0,
+          error: data.database.error || null
         }
       }
       

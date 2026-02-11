@@ -5,29 +5,36 @@ declare(strict_types=1);
  */
 
 require_once __DIR__ . '/BaseController.php';
-require_once __DIR__ . '/../../core/cache.php';
 
 class DashboardController extends BaseController
 {
-    private const STATS_CACHE_TTL = 30; // 统计数据缓存30秒
-    private const TREND_CACHE_TTL = 60; // 趋势数据缓存60秒
-    
     /**
-     * 获取仪表盘统计数据（带缓存）
+     * 获取仪表盘统计数据
      */
     public function stats(): void
     {
         $this->requireLogin();
         
-        // 尝试从缓存获取
-        $cache = CacheService::getInstance();
-        $cacheKey = 'dashboard:stats';
-        
-        $data = $cache->get($cacheKey, function() {
-            return $this->loadDashboardStats();
-        }, self::STATS_CACHE_TTL);
-        
-        $this->success($data);
+        try {
+            $data = $this->loadDashboardStats();
+            $this->success($data);
+        } catch (Exception $e) {
+            // 出错时返回默认数据，并记录错误
+            error_log('Dashboard stats error: ' . $e->getMessage());
+            $this->success([
+                'todayClicks' => 0,
+                'totalClicks' => 0,
+                'activeRules' => 0,
+                'activeDomains' => 0,
+                'todayTrend' => 0,
+                'weekTrend' => 0,
+                'deviceStats' => [],
+                'regionStats' => [],
+                'topRules' => [],
+                'systemStatus' => ['healthy' => false],
+                'error' => $e->getMessage()
+            ]);
+        }
     }
     
     /**
@@ -35,48 +42,80 @@ class DashboardController extends BaseController
      */
     private function loadDashboardStats(): array
     {
+        $debug = [];
+        
         // 跳转规则统计 - 使用 status='active' 和 visit_count
-        $jumpStats = $this->db->fetch(
-            "SELECT 
-                COUNT(*) as total,
-                SUM(CASE WHEN status = 'active' THEN 1 ELSE 0 END) as active,
-                COALESCE(SUM(visit_count), 0) as total_clicks
-            FROM jump_rules"
-        ) ?: ['total' => 0, 'active' => 0, 'total_clicks' => 0];
+        try {
+            $jumpStats = $this->db->fetch(
+                "SELECT 
+                    COUNT(*) as total,
+                    SUM(CASE WHEN status = 'active' THEN 1 ELSE 0 END) as active,
+                    COALESCE(SUM(visit_count), 0) as total_clicks
+                FROM jump_rules"
+            ) ?: ['total' => 0, 'active' => 0, 'total_clicks' => 0];
+            $debug['jump_rules'] = 'ok';
+        } catch (Exception $e) {
+            $jumpStats = ['total' => 0, 'active' => 0, 'total_clicks' => 0];
+            $debug['jump_rules'] = $e->getMessage();
+        }
         
         // 短链接统计 (表名是 short_links)
-        $shortlinkStats = $this->db->fetch(
-            "SELECT 
-                COUNT(*) as total,
-                SUM(CASE WHEN enabled = 1 THEN 1 ELSE 0 END) as active,
-                COALESCE(SUM(total_clicks), 0) as total_clicks
-            FROM short_links"
-        ) ?: ['total' => 0, 'active' => 0, 'total_clicks' => 0];
+        try {
+            $shortlinkStats = $this->db->fetch(
+                "SELECT 
+                    COUNT(*) as total,
+                    SUM(CASE WHEN enabled = 1 THEN 1 ELSE 0 END) as active,
+                    COALESCE(SUM(total_clicks), 0) as total_clicks
+                FROM short_links"
+            ) ?: ['total' => 0, 'active' => 0, 'total_clicks' => 0];
+            $debug['short_links'] = 'ok';
+        } catch (Exception $e) {
+            $shortlinkStats = ['total' => 0, 'active' => 0, 'total_clicks' => 0];
+            $debug['short_links'] = $e->getMessage();
+        }
         
         // 域名统计 (表名是 jump_domains) - 使用 status='active'
-        $domainStats = $this->db->fetch(
-            "SELECT 
-                COUNT(*) as total,
-                SUM(CASE WHEN status = 'active' THEN 1 ELSE 0 END) as active,
-                SUM(CASE WHEN ssl_enabled = 1 THEN 1 ELSE 0 END) as cf_enabled
-            FROM jump_domains"
-        ) ?: ['total' => 0, 'active' => 0, 'cf_enabled' => 0];
+        try {
+            $domainStats = $this->db->fetch(
+                "SELECT 
+                    COUNT(*) as total,
+                    SUM(CASE WHEN status = 'active' THEN 1 ELSE 0 END) as active,
+                    SUM(CASE WHEN ssl_enabled = 1 THEN 1 ELSE 0 END) as cf_enabled
+                FROM jump_domains"
+            ) ?: ['total' => 0, 'active' => 0, 'cf_enabled' => 0];
+            $debug['jump_domains'] = 'ok';
+        } catch (Exception $e) {
+            $domainStats = ['total' => 0, 'active' => 0, 'cf_enabled' => 0];
+            $debug['jump_domains'] = $e->getMessage();
+        }
         
         // IP 池统计 (简单表结构，只有 id, ip, created_at)
-        $ipPoolStats = $this->db->fetch(
-            "SELECT 
-                COUNT(*) as total,
-                COUNT(*) as active,
-                0 as blocked
-            FROM ip_pool"
-        ) ?: ['total' => 0, 'active' => 0, 'blocked' => 0];
+        try {
+            $ipPoolStats = $this->db->fetch(
+                "SELECT 
+                    COUNT(*) as total,
+                    COUNT(*) as active,
+                    0 as blocked
+                FROM ip_pool"
+            ) ?: ['total' => 0, 'active' => 0, 'blocked' => 0];
+            $debug['ip_pool'] = 'ok';
+        } catch (Exception $e) {
+            $ipPoolStats = ['total' => 0, 'active' => 0, 'blocked' => 0];
+            $debug['ip_pool'] = $e->getMessage();
+        }
         
         // 今日访问量 - 从 jump_logs 表获取
         $today = date('Y-m-d');
-        $todayClicks = $this->db->fetchColumn(
-            "SELECT COUNT(*) FROM jump_logs WHERE DATE(visited_at) = ?",
-            [$today]
-        ) ?? 0;
+        try {
+            $todayClicks = $this->db->fetchColumn(
+                "SELECT COUNT(*) FROM jump_logs WHERE DATE(visited_at) = ?",
+                [$today]
+            ) ?? 0;
+            $debug['todayClicks'] = 'ok: ' . $todayClicks;
+        } catch (Exception $e) {
+            $todayClicks = 0;
+            $debug['todayClicks'] = $e->getMessage();
+        }
         
         // 昨日访问量 - 计算趋势
         $yesterday = date('Y-m-d', strtotime('-1 day'));
@@ -202,7 +241,10 @@ class DashboardController extends BaseController
             'antibot' => $antibotStats,
             
             'updated_at' => date('Y-m-d H:i:s'),
-            'cached' => true
+            'cached' => false,
+            
+            // 调试信息 - 生产环境可移除
+            'debug' => $debug
         ];
     }
     
@@ -378,14 +420,15 @@ class DashboardController extends BaseController
         
         $limit = min(100, (int)($this->param('limit') ?? 20));
         
-        // 使用 jump_logs 表
+        // 使用 jump_logs 表 - 字段名与 database_full.sql 一致
         $logs = $this->db->fetchAll(
             "SELECT 
                 id,
-                rule_type as type,
-                match_key,
-                visitor_ip as ip,
-                country,
+                COALESCE(rule_id, 0) as rule_id,
+                domain,
+                path,
+                ip,
+                country_code as country,
                 device_type,
                 browser,
                 referer,
