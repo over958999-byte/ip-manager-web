@@ -1,0 +1,67 @@
+# 安全配置文件
+# 用于 Dependabot、密钥管理等安全加固
+
+version: 2
+updates:
+  # PHP Composer 依赖
+  - package-ecosystem: "composer"
+    directory: "/tests"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
+      - "security"
+    commit-message:
+      prefix: "chore(deps)"
+
+  # npm 依赖（前端）
+  - package-ecosystem: "npm"
+    directory: "/backend/frontend"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
+      - "frontend"
+    groups:
+      vue-ecosystem:
+        patterns:
+          - "vue*"
+          - "@vue/*"
+          - "pinia"
+      element-plus:
+        patterns:
+          - "element-plus"
+          - "@element-plus/*"
+      build-tools:
+        patterns:
+          - "vite"
+          - "@vitejs/*"
+          - "typescript"
+    commit-message:
+      prefix: "chore(deps)"
+
+  # Docker 依赖
+  - package-ecosystem: "docker"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    labels:
+      - "dependencies"
+      - "docker"
+    commit-message:
+      prefix: "chore(docker)"
+
+  # GitHub Actions
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    labels:
+      - "dependencies"
+      - "ci"
+    commit-message:
+      prefix: "chore(ci)"

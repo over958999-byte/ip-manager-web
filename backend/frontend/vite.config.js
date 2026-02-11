@@ -8,8 +8,8 @@ export default defineConfig({
   server: {
     port: 3000,
     proxy: {
-      '/api.php': {
-        target: 'http://localhost:8080/backend/api', // PHP服务器地址
+      '/backend/api': {
+        target: 'http://localhost:8080', // PHP服务器地址
         changeOrigin: true
       }
     }

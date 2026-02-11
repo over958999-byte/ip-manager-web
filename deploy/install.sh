@@ -521,22 +521,29 @@ import_database() {
         return
     fi
     
-    # 导入主数据库结构
+    # 使用完整数据库脚本
+    if [ -f "backend/database_full.sql" ]; then
+        log_info "使用完整数据库脚本 (database_full.sql)..."
+        mysql < backend/database_full.sql
+        log_info "数据库导入完成"
+        return
+    fi
+    
+    # 回退: 使用旧版SQL文件（兼容旧仓库版本）
+    log_warn "未找到 database_full.sql，尝试旧版SQL文件..."
+    
     if [ -f "backend/database.sql" ]; then
         mysql "$DB_NAME" < backend/database.sql
     fi
     
-    # 导入初始配置
     if [ -f "backend/init_config.sql" ]; then
         mysql "$DB_NAME" < backend/init_config.sql
     fi
     
-    # 导入短链接表
     if [ -f "backend/shortlink.sql" ]; then
         mysql "$DB_NAME" < backend/shortlink.sql
     fi
     
-    # 导入跳转规则迁移
     if [ -f "backend/migrations/merge_jump_rules.sql" ]; then
         mysql "$DB_NAME" < backend/migrations/merge_jump_rules.sql
     fi
@@ -684,7 +691,7 @@ server {
     # 管理后台API
     location ~ ^/api\.php {
         ${FASTCGI_PASS}
-        fastcgi_param SCRIPT_FILENAME ${INSTALL_DIR}/backend/api/api.php;
+        fastcgi_param SCRIPT_FILENAME ${INSTALL_DIR}/backend/api/api_v2.php;
         include fastcgi_params;
     }
 
@@ -797,7 +804,7 @@ server {
 
     location ~ ^/api\.php {
         ${FASTCGI_PASS}
-        fastcgi_param SCRIPT_FILENAME ${INSTALL_DIR}/backend/api/api.php;
+        fastcgi_param SCRIPT_FILENAME ${INSTALL_DIR}/backend/api/api_v2.php;
         include fastcgi_params;
     }
 

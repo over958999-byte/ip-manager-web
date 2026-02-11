@@ -313,7 +313,7 @@ const currentTokenName = ref('')
 const activeDoc = ref(['auth'])
 
 const apiBaseUrl = computed(() => {
-  return window.location.origin + '/api.php'
+  return window.location.origin + '/backend/api/api_v2.php'
 })
 
 const permissionLabels = {

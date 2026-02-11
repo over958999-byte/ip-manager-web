@@ -63,7 +63,7 @@ services:
       - MYSQL_PASSWORD=${DB_PASS:-secret}
     volumes:
       - mysql-data:/var/lib/mysql
-      - ./backend/install.sql:/docker-entrypoint-initdb.d/init.sql:ro
+      - ./backend/database_full.sql:/docker-entrypoint-initdb.d/init.sql:ro
       - ./deploy/docker/mysql.cnf:/etc/mysql/conf.d/custom.cnf:ro
     ports:
       - "${MYSQL_PORT:-3306}:3306"

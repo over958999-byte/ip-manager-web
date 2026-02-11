@@ -100,13 +100,62 @@ try {
     
     echo date('Y-m-d H:i:s') . " - 检测完成，危险: $dangerCount，警告: $warningCount\n";
     
-    // 如果发现危险域名，可以发送通知（预留接口）
-    if ($dangerCount > 0) {
-        // TODO: 发送邮件/Webhook 通知
-        // sendNotification($dangerCount, $warningCount);
+    // 如果发现危险或警告域名，发送 Webhook 通知
+    if ($dangerCount > 0 || $warningCount > 0) {
+        sendDomainSafetyNotification($pdo, $dangerCount, $warningCount);
     }
     
 } catch (Exception $e) {
     echo date('Y-m-d H:i:s') . " - 错误: " . $e->getMessage() . "\n";
     exit(1);
+}
+
+/**
+ * 发送域名安全检测通知
+ */
+function sendDomainSafetyNotification(PDO $pdo, int $dangerCount, int $warningCount): void
+{
+    try {
+        // 引入 Webhook 模块
+        require_once __DIR__ . '/../core/webhook.php';
+        
+        $webhook = new Webhook($pdo);
+        
+        // 获取危险域名列表
+        $stmt = $pdo->prepare("
+            SELECT domain, safety_status, safety_details 
+            FROM jump_domains 
+            WHERE safety_status IN ('danger', 'warning')
+            AND last_check_at >= DATE_SUB(NOW(), INTERVAL 1 HOUR)
+            LIMIT 10
+        ");
+        $stmt->execute();
+        $domains = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        
+        // 构建通知内容
+        $domainList = array_map(fn($d) => "• {$d['domain']} ({$d['safety_status']})", $domains);
+        
+        $message = "🔒 **域名安全检测报告**\n\n";
+        $message .= "⚠️ 危险域名: {$dangerCount} 个\n";
+        $message .= "⚡ 警告域名: {$warningCount} 个\n\n";
+        
+        if (!empty($domainList)) {
+            $message .= "**问题域名列表:**\n" . implode("\n", $domainList);
+        }
+        
+        // 发送到所有配置的 Webhook
+        $webhook->sendToAll('domain_safety', [
+            'title'        => '域名安全检测报告',
+            'message'      => $message,
+            'danger_count' => $dangerCount,
+            'warning_count' => $warningCount,
+            'domains'      => $domains,
+            'check_time'   => date('Y-m-d H:i:s'),
+        ]);
+        
+        echo date('Y-m-d H:i:s') . " - 已发送 Webhook 通知\n";
+        
+    } catch (Exception $e) {
+        echo date('Y-m-d H:i:s') . " - 发送通知失败: " . $e->getMessage() . "\n";
+    }
 }

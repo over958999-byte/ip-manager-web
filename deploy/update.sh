@@ -373,7 +373,7 @@ server {
 
     location ~ ^/api\.php {
         ${FASTCGI_PASS}
-        fastcgi_param SCRIPT_FILENAME ${INSTALL_DIR}/backend/api/api.php;
+        fastcgi_param SCRIPT_FILENAME ${INSTALL_DIR}/backend/api/api_v2.php;
         include fastcgi_params;
     }
 

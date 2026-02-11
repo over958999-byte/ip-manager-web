@@ -1,0 +1,71 @@
+# PHPStan 静态分析配置
+# 运行命令: phpstan analyse --memory-limit=1G
+
+parameters:
+    # 分析级别 (0-9)，6 是推荐的严格级别
+    level: 6
+    
+    # 分析路径
+    paths:
+        - backend/core
+        - backend/api
+        - backend/cron
+        - public
+    
+    # 排除路径
+    excludePaths:
+        - backend/core/db_config.php
+        - backend/frontend
+        - tests
+        - vendor
+    
+    # 扫描的文件后缀
+    fileExtensions:
+        - php
+    
+    # 忽略的错误模式
+    ignoreErrors:
+        # 允许动态属性（PHP 8.2 弃用警告）
+        - '#Access to an undefined property#'
+        
+        # 允许调用未定义的方法（动态调用）
+        - '#Call to an undefined method#'
+        
+        # 忽略某些全局函数
+        - '#Function [a-z_]+ not found#'
+        
+        # Redis 扩展方法
+        - '#Call to method .* on Redis#'
+        
+        # APCu 扩展函数
+        - '#Function apcu_.* not found#'
+    
+    # 报告未匹配的忽略规则
+    reportUnmatchedIgnoredErrors: false
+    
+    # 检查缺失的类型声明
+    checkMissingIterableValueType: false
+    checkGenericClassInNonGenericObjectType: false
+    
+    # 并行处理
+    parallel:
+        maximumNumberOfProcesses: 4
+    
+    # 自定义类型提示
+    typeAliases:
+        DatabaseRow: 'array<string, mixed>'
+        ApiResponse: 'array{success: bool, data?: mixed, error?: string, message?: string}'
+
+    # Stub 文件（为没有类型声明的扩展提供类型）
+    stubFiles:
+        # - stubs/redis.stub
+        # - stubs/apcu.stub
+
+    # 引导文件
+    bootstrapFiles:
+        - tests/bootstrap.php
+
+# 可选的严格规则（取消注释以启用）
+# includes:
+#     - vendor/phpstan/phpstan-strict-rules/rules.neon
+#     - vendor/phpstan/phpstan-deprecation-rules/rules.neon

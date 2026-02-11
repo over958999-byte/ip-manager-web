@@ -34,7 +34,14 @@
 ```
 IP管理器网页版后台/
 ├── backend/                    # 后端核心
-│   ├── api/api.php            # API 入口
+│   ├── api/                   # API 模块
+│   │   ├── api_v2.php         # API 入口（支持 RESTful 和 action 参数）
+│   │   ├── routes.php         # 路由定义
+│   │   └── controllers/       # MVC 控制器
+│   │       ├── AuthController.php
+│   │       ├── JumpController.php
+│   │       ├── DomainController.php
+│   │       └── ...
 │   ├── core/                   # 核心模块
 │   │   ├── database.php       # 数据库基础
 │   │   ├── database_cluster.php # 读写分离
@@ -47,8 +54,7 @@ IP管理器网页版后台/
 │   │   └── import_export.php  # 导入导出
 │   ├── cron/                   # 定时任务
 │   ├── frontend/              # Vue 管理界面
-│   ├── install.sql            # 数据库初始化
-│   └── migrate_v2.sql         # V2.0 迁移脚本
+│   └── database_full.sql      # 完整数据库脚本
 ├── public/                     # Web 入口
 │   ├── index.php              # 跳转入口
 │   ├── antibot.php            # 反爬验证
@@ -90,9 +96,8 @@ cd backend/frontend && npm install
 # 2. 构建前端
 npm run build
 
-# 3. 导入数据库
-mysql -u root -p ip_manager < backend/install.sql
-mysql -u root -p ip_manager < backend/migrate_v2.sql
+# 3. 导入数据库（使用合并后的完整脚本）
+mysql -u root -p < backend/database_full.sql
 
 # 4. 配置 Nginx（参考 config/*.conf）
 ```
@@ -121,11 +126,11 @@ cd backend/frontend && npm run dev  # Vue 开发
 | `REDIS_HOST` | Redis 地址 | redis |
 | `BACKUP_CLOUD_PROVIDER` | 云存储类型 | (可选) |
 
-### V2.0 数据库迁移
+### 数据库安装
 
 ```bash
-# 从 V1.x 升级
-mysql -u root -p ip_manager < backend/migrate_v2.sql
+# 导入完整数据库
+mysql -u root -p < backend/database_full.sql
 ```
 
 ## 📡 API 端点

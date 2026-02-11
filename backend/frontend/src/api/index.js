@@ -5,7 +5,7 @@ import { ElMessage } from 'element-plus'
 
 // 创建axios实例
 const request = axios.create({
-  baseURL: '/api.php',
+  baseURL: '/backend/api/api_v2.php',
   timeout: 30000,
   withCredentials: true
 })

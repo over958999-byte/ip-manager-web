@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<phpunit xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:noNamespaceSchemaLocation="https://schema.phpunit.de/10.0/phpunit.xsd"
+         bootstrap="bootstrap.php"
+         colors="true"
+         cacheDirectory=".phpunit.cache"
+         executionOrder="depends,defects"
+         requireCoverageMetadata="false"
+         beStrictAboutCoverageMetadata="false"
+         beStrictAboutOutputDuringTests="true"
+         failOnRisky="true"
+         failOnWarning="true">
+    
+    <testsuites>
+        <testsuite name="Unit">
+            <directory suffix="Test.php">./Unit</directory>
+        </testsuite>
+        <testsuite name="Integration">
+            <directory suffix="Test.php">./Integration</directory>
+        </testsuite>
+    </testsuites>
+
+    <coverage includeUncoveredFiles="true"
+              pathCoverage="false"
+              ignoreDeprecatedCodeUnits="true"
+              disableCodeCoverageIgnore="true">
+        <include>
+            <directory suffix=".php">../backend/core</directory>
+        </include>
+        <exclude>
+            <file>../backend/core/db_config.php</file>
+        </exclude>
+        <report>
+            <html outputDirectory="coverage"/>
+            <text outputFile="coverage/coverage.txt"/>
+        </report>
+    </coverage>
+
+    <php>
+        <env name="APP_ENV" value="testing"/>
+        <env name="DB_HOST" value="127.0.0.1"/>
+        <env name="DB_NAME" value="ip_manager_test"/>
+        <env name="DB_USER" value="root"/>
+        <env name="DB_PASS" value=""/>
+        <env name="REDIS_HOST" value="127.0.0.1"/>
+    </php>
+</phpunit>
