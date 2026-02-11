@@ -4,7 +4,7 @@
 # ============================================
 # 阶段1: 前端构建
 # ============================================
-FROM node:18-alpine AS frontend-builder
+FROM node:25-alpine AS frontend-builder
 
 WORKDIR /app/frontend
 
