@@ -86,7 +86,12 @@ class AuthController extends BaseController
         // 登录成功
         $_SESSION['logged_in'] = true;
         $_SESSION['login_time'] = time();
+        $_SESSION['user_id'] = 1;  // 管理员用户ID
+        $_SESSION['username'] = 'admin';  // 管理员用户名
         session_regenerate_id(true); // 防止会话固定攻击
+        
+        // 记录登录审计日志
+        $this->audit('login', 'user', 1, ['ip' => $this->getClientIp()]);
         
         // 处理"记住我"功能
         $remember = $this->param('remember', false);
@@ -252,6 +257,8 @@ class AuthController extends BaseController
                 // Token 有效，恢复登录状态
                 $_SESSION['logged_in'] = true;
                 $_SESSION['login_time'] = time();
+                $_SESSION['user_id'] = 1;  // 管理员用户ID
+                $_SESSION['username'] = 'admin';  // 管理员用户名
                 session_regenerate_id(true);
                 $loggedIn = true;
                 
