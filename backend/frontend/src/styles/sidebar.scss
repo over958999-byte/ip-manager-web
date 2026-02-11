@@ -1,7 +1,7 @@
 /**
  * 侧边栏样式
  */
-@use '../variables.scss' as *;
+@import './variables.scss';
 
 .sidebar-container {
   position: fixed;

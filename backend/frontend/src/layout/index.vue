@@ -93,7 +93,7 @@ onBeforeUnmount(() => {
 </script>
 
 <style lang="scss" scoped>
-@use '@/styles/variables.scss' as *;
+@import '@/styles/variables.scss';
 
 .app-wrapper {
   position: relative;
