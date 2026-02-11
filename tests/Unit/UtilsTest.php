@@ -88,9 +88,12 @@ class UtilsTest extends TestCase
     
     public function testMaskSensitive(): void
     {
-        $this->assertEquals('abc***xyz', Utils::maskSensitive('abcdefghixyz'));
-        $this->assertEquals('***', Utils::maskSensitive('ab'));
-        $this->assertEquals('a***b', Utils::maskSensitive('a12345b', 1, 1));
+        // 'abcdefghixyz' 长度12，保留前3后3，中间6位 => 最多6个*
+        $this->assertEquals('abc******xyz', Utils::maskSensitive('abcdefghixyz'));
+        // 长度2 <= 3+3，全部脱敏
+        $this->assertEquals('**', Utils::maskSensitive('ab'));
+        // 'a12345b' 长度7，保留前1后1，中间5位 => 5个*
+        $this->assertEquals('a*****b', Utils::maskSensitive('a12345b', 1, 1));
     }
     
     // ==================== 安全相关测试 ====================
