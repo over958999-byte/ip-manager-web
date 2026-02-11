@@ -70,7 +70,7 @@
                     </el-tag>
                   </template>
                 </el-table-column>
-                <el-table-column prop="click_count" label="点击" width="70" />
+                <el-table-column prop="total_clicks" label="点击" width="70" />
               </el-table>
               <el-empty v-if="recentShortLinks.length === 0" description="暂无短链" :image-size="60" />
             </el-tab-pane>
@@ -85,7 +85,7 @@
                     </el-tag>
                   </template>
                 </el-table-column>
-                <el-table-column prop="click_count" label="点击" width="70" />
+                <el-table-column prop="total_clicks" label="点击" width="70" />
               </el-table>
               <el-empty v-if="recentIpRules.length === 0" description="暂无IP跳转" :image-size="60" />
             </el-tab-pane>

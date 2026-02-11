@@ -1,149 +1,174 @@
 <template>
-  <el-container class="layout-container">
+  <div :class="classObj" class="app-wrapper">
+    <!-- 移动端遮罩 -->
+    <div v-if="device === 'mobile' && sidebar.opened" class="drawer-bg" @click="handleClickOutside" />
+    
     <!-- 侧边栏 -->
-    <el-aside :width="isCollapse ? '64px' : '220px'" class="sidebar">
-      <div class="logo-container" :class="{ collapsed: isCollapse }">
-        <span v-if="!isCollapse">🌐 IP管理后台</span>
-        <span v-else>IP</span>
-      </div>
-      <el-menu
-        :default-active="$route.path"
-        :collapse="isCollapse"
-        :collapse-transition="false"
-        router
-        background-color="transparent"
-      >
-        <el-menu-item index="/dashboard">
-          <el-icon><Odometer /></el-icon>
-          <template #title>仪表盘</template>
-        </el-menu-item>
-        <el-menu-item index="/jump-rules">
-          <el-icon><Promotion /></el-icon>
-          <template #title>跳转管理</template>
-        </el-menu-item>
-        <el-menu-item index="/resource-pool">
-          <el-icon><Coin /></el-icon>
-          <template #title>资源池</template>
-        </el-menu-item>
-        <el-menu-item index="/antibot">
-          <el-icon><Shield /></el-icon>
-          <template #title>反爬虫管理</template>
-        </el-menu-item>
-        <el-menu-item index="/api-manager">
-          <el-icon><Connection /></el-icon>
-          <template #title>API管理</template>
-        </el-menu-item>
-        <el-menu-item index="/settings">
-          <el-icon><Setting /></el-icon>
-          <template #title>系统设置</template>
-        </el-menu-item>
-      </el-menu>
-    </el-aside>
-
+    <Sidebar class="sidebar-container" />
+    
     <!-- 主内容区 -->
-    <el-container>
-      <!-- 头部 -->
-      <el-header class="header" height="60px">
-        <div class="header-left">
-          <el-icon 
-            class="collapse-btn" 
-            @click="isCollapse = !isCollapse"
-            style="cursor: pointer; font-size: 20px;"
-          >
-            <Fold v-if="!isCollapse" />
-            <Expand v-else />
-          </el-icon>
-        </div>
-        <div class="header-right">
-          <el-dropdown @command="handleCommand">
-            <span class="el-dropdown-link" style="cursor: pointer; display: flex; align-items: center;">
-              <el-avatar :size="32" style="background: #409eff; margin-right: 8px;">
-                <el-icon><User /></el-icon>
-              </el-avatar>
-              管理员
-              <el-icon class="el-icon--right"><ArrowDown /></el-icon>
-            </span>
-            <template #dropdown>
-              <el-dropdown-menu>
-                <el-dropdown-item command="settings">
-                  <el-icon><Setting /></el-icon> 系统设置
-                </el-dropdown-item>
-                <el-dropdown-item divided command="logout">
-                  <el-icon><SwitchButton /></el-icon> 退出登录
-                </el-dropdown-item>
-              </el-dropdown-menu>
-            </template>
-          </el-dropdown>
-        </div>
-      </el-header>
-
+    <div class="main-container" :class="{ 'has-tags-view': tagsView }">
+      <div :class="{ 'fixed-header': fixedHeader }">
+        <!-- 头部导航 -->
+        <Navbar />
+        <!-- 标签页 -->
+        <TagsView v-if="tagsView" />
+      </div>
+      
       <!-- 主要内容 -->
-      <el-main class="main-content">
-        <router-view v-slot="{ Component }">
-          <transition name="fade" mode="out-in">
-            <component :is="Component" />
-          </transition>
-        </router-view>
-      </el-main>
-    </el-container>
-  </el-container>
+      <AppMain />
+    </div>
+    
+    <!-- 设置面板 -->
+    <Settings v-if="showSettings" />
+  </div>
 </template>
 
 <script setup>
-import { ref } from 'vue'
-import { useRouter } from 'vue-router'
-import { useUserStore } from '../stores/user'
-import { ElMessageBox } from 'element-plus'
+import { computed, watchEffect, onMounted, onBeforeUnmount } from 'vue'
+import { useSettingsStore, useTagsViewStore } from '@/stores'
+import Sidebar from './components/Sidebar/index.vue'
+import Navbar from './components/Navbar.vue'
+import TagsView from './components/TagsView/index.vue'
+import AppMain from './components/AppMain.vue'
+import Settings from './components/Settings/index.vue'
 
-const router = useRouter()
-const userStore = useUserStore()
-const isCollapse = ref(false)
+const settingsStore = useSettingsStore()
 
-const handleCommand = async (command) => {
-  if (command === 'logout') {
-    await ElMessageBox.confirm('确定要退出登录吗？', '提示', {
-      type: 'warning'
-    })
-    await userStore.logout()
-    router.push('/login')
-  } else if (command === 'settings') {
-    router.push('/settings')
+// 计算属性
+const sidebar = computed(() => ({
+  opened: !settingsStore.sidebarCollapsed
+}))
+
+const device = computed(() => settingsStore.device)
+const fixedHeader = computed(() => settingsStore.fixedHeader)
+const tagsView = computed(() => settingsStore.tagsView)
+const showSettings = computed(() => settingsStore.showSettings)
+
+const classObj = computed(() => ({
+  hideSidebar: settingsStore.sidebarCollapsed,
+  openSidebar: !settingsStore.sidebarCollapsed,
+  withoutAnimation: false,
+  mobile: device.value === 'mobile'
+}))
+
+// 点击遮罩关闭侧边栏
+const handleClickOutside = () => {
+  settingsStore.closeSidebar()
+}
+
+// 响应式处理
+const { body } = document
+const WIDTH = 992 // Bootstrap lg断点
+
+const isMobile = () => {
+  const rect = body.getBoundingClientRect()
+  return rect.width - 1 < WIDTH
+}
+
+const resizeHandler = () => {
+  if (!document.hidden) {
+    const mobile = isMobile()
+    settingsStore.setDevice(mobile ? 'mobile' : 'desktop')
+    
+    if (mobile) {
+      settingsStore.closeSidebar()
+    }
   }
 }
+
+onMounted(() => {
+  const mobile = isMobile()
+  if (mobile) {
+    settingsStore.setDevice('mobile')
+    settingsStore.closeSidebar()
+  }
+  
+  window.addEventListener('resize', resizeHandler)
+})
+
+onBeforeUnmount(() => {
+  window.removeEventListener('resize', resizeHandler)
+})
 </script>
 
-<style scoped>
-.layout-container {
-  height: 100vh;
+<style lang="scss" scoped>
+@use '@/styles/variables.scss' as *;
+
+.app-wrapper {
+  position: relative;
+  height: 100%;
+  width: 100%;
+
+  &::after {
+    display: table;
+    clear: both;
+    content: '';
+  }
 }
 
-.header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
+.drawer-bg {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: rgba(0, 0, 0, 0.3);
+  z-index: 999;
 }
 
-.header-left {
-  display: flex;
-  align-items: center;
+.main-container {
+  min-height: 100%;
+  transition: margin-left $transition-duration;
+  margin-left: $sidebar-width;
+  position: relative;
+
+  &.has-tags-view {
+    .app-main {
+      min-height: calc(100vh - #{$header-height} - #{$tags-view-height});
+    }
+  }
 }
 
-.header-right {
-  display: flex;
-  align-items: center;
+.fixed-header {
+  position: fixed;
+  top: 0;
+  right: 0;
+  z-index: 9;
+  width: calc(100% - #{$sidebar-width});
+  transition: width $transition-duration;
 }
 
-.collapse-btn:hover {
-  color: #409eff;
+.hideSidebar {
+  .main-container {
+    margin-left: $sidebar-collapsed-width;
+  }
+
+  .fixed-header {
+    width: calc(100% - #{$sidebar-collapsed-width});
+  }
 }
 
-.fade-enter-active,
-.fade-leave-active {
-  transition: opacity 0.2s ease;
+// 移动端
+.mobile {
+  .main-container {
+    margin-left: 0;
+  }
+
+  .fixed-header {
+    width: 100%;
+  }
+
+  &.openSidebar {
+    position: fixed;
+    top: 0;
+  }
 }
 
-.fade-enter-from,
-.fade-leave-to {
-  opacity: 0;
+.withoutAnimation {
+  .main-container,
+  .sidebar-container {
+    transition: none;
+  }
 }
 </style>

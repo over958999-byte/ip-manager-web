@@ -528,6 +528,10 @@ class JumpService {
             $params = array_merge($params, [$search, $search, $search, $search]);
         }
         
+        if (!empty($filters['has_clicks'])) {
+            $where[] = "total_clicks > 0";
+        }
+        
         $sql = "SELECT * FROM jump_rules WHERE " . implode(' AND ', $where);
         $sql .= " ORDER BY created_at DESC";
         
@@ -585,6 +589,10 @@ class JumpService {
             $where[] = "(match_key LIKE ? OR target_url LIKE ? OR title LIKE ? OR note LIKE ?)";
             $search = '%' . $filters['search'] . '%';
             $params = array_merge($params, [$search, $search, $search, $search]);
+        }
+        
+        if (!empty($filters['has_clicks'])) {
+            $where[] = "total_clicks > 0";
         }
         
         $stmt = $this->pdo->prepare("SELECT COUNT(*) FROM jump_rules WHERE " . implode(' AND ', $where));

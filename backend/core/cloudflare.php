@@ -133,12 +133,41 @@ class CloudflareService {
             ];
         }
         
-        $errorMsg = '添加失败';
-        if (isset($result['errors'][0]['message'])) {
-            $errorMsg = $result['errors'][0]['message'];
+        // 如果域名已存在，尝试获取现有的 zone 信息
+        $errorCode = $result['errors'][0]['code'] ?? 0;
+        $errorMsg = $result['errors'][0]['message'] ?? '添加失败';
+        
+        // 错误码 1061 表示域名已存在
+        if ($errorCode == 1061 || strpos($errorMsg, 'already exists') !== false) {
+            // 获取现有域名信息
+            $existingZone = $this->getZoneByName($rootDomain);
+            if ($existingZone) {
+                return [
+                    'success' => true,
+                    'zone_id' => $existingZone['id'],
+                    'name_servers' => $existingZone['name_servers'] ?? [],
+                    'status' => $existingZone['status'],
+                    'root_domain' => $rootDomain,
+                    'already_exists' => true
+                ];
+            }
         }
         
         return ['success' => false, 'message' => $errorMsg];
+    }
+    
+    /**
+     * 通过域名获取 Zone 信息
+     */
+    public function getZoneByName(string $domain): ?array {
+        $rootDomain = $this->extractRootDomain($domain);
+        $result = $this->request('GET', '/zones?name=' . urlencode($rootDomain));
+        
+        if (isset($result['success']) && $result['success'] && !empty($result['result'])) {
+            return $result['result'][0];
+        }
+        
+        return null;
     }
     
     /**

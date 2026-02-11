@@ -1,0 +1,65 @@
+// 基础变量
+$base-font-family: 'Helvetica Neue', Helvetica, 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', Arial, sans-serif;
+$base-font-size: 14px;
+$base-font-weight: 400;
+$base-color: #333;
+$base-border-color: #dcdfe6;
+$base-border-radius: 4px;
+
+// 侧边栏变量
+$sidebar-width: 220px;
+$sidebar-collapsed-width: 64px;
+$sidebar-bg-color: #304156;
+$sidebar-text-color: #bfcbd9;
+$sidebar-active-text-color: #409eff;
+
+// 头部变量
+$header-height: 50px;
+$header-bg-color: #fff;
+
+// 标签页变量
+$tags-view-height: 34px;
+$tags-view-bg-color: #fff;
+
+// 主题色
+$primary-color: #409eff;
+$success-color: #67c23a;
+$warning-color: #e6a23c;
+$danger-color: #f56c6c;
+$info-color: #909399;
+
+// 菜单项变量
+$menu-item-height: 50px;
+$submenu-item-height: 50px;
+
+// 过渡动画
+$transition-duration: 0.28s;
+
+// 混入
+@mixin clearfix {
+  &::after {
+    display: block;
+    clear: both;
+    content: '';
+  }
+}
+
+@mixin scrollbar {
+  &::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+
+  &::-webkit-scrollbar-thumb {
+    background-color: rgba(144, 147, 153, 0.3);
+    border-radius: 3px;
+
+    &:hover {
+      background-color: rgba(144, 147, 153, 0.5);
+    }
+  }
+
+  &::-webkit-scrollbar-track {
+    background-color: transparent;
+  }
+}

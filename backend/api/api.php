@@ -174,7 +174,7 @@ function validateApiToken($db, $token, $requiredPermission = null) {
         return ['valid' => false, 'error' => 'API Token不能为空'];
     }
     
-    $stmt = $db->prepare("SELECT * FROM api_tokens WHERE token = ?");
+    $stmt = $db->getPdo()->prepare("SELECT * FROM api_tokens WHERE token = ?");
     $stmt->execute([$token]);
     $tokenData = $stmt->fetch(PDO::FETCH_ASSOC);
     
@@ -197,7 +197,7 @@ function validateApiToken($db, $token, $requiredPermission = null) {
     }
     
     // 更新最后使用时间和调用次数
-    $db->prepare("UPDATE api_tokens SET last_used_at = NOW(), call_count = call_count + 1 WHERE id = ?")
+    $db->getPdo()->prepare("UPDATE api_tokens SET last_used_at = NOW(), call_count = call_count + 1 WHERE id = ?")
        ->execute([$tokenData['id']]);
     
     return [
@@ -210,7 +210,7 @@ function validateApiToken($db, $token, $requiredPermission = null) {
 
 // 检查API速率限制
 function checkApiRateLimit($db, $tokenId, $limit) {
-    $stmt = $db->prepare("SELECT COUNT(*) FROM api_logs WHERE token_id = ? AND created_at > DATE_SUB(NOW(), INTERVAL 1 MINUTE)");
+    $stmt = $db->getPdo()->prepare("SELECT COUNT(*) FROM api_logs WHERE token_id = ? AND created_at > DATE_SUB(NOW(), INTERVAL 1 MINUTE)");
     $stmt->execute([$tokenId]);
     $count = $stmt->fetchColumn();
     
@@ -219,7 +219,7 @@ function checkApiRateLimit($db, $tokenId, $limit) {
 
 // 记录API调用日志
 function logApiCall($db, $tokenId, $action, $requestData, $responseCode = 200) {
-    $stmt = $db->prepare("INSERT INTO api_logs (token_id, action, request_data, response_code, ip) VALUES (?, ?, ?, ?, ?)");
+    $stmt = $db->getPdo()->prepare("INSERT INTO api_logs (token_id, action, request_data, response_code, ip) VALUES (?, ?, ?, ?, ?)");
     $stmt->execute([
         $tokenId,
         $action,
@@ -241,7 +241,7 @@ $csrfEnabled = $db->getConfig('csrf_enabled', false); // 默认关闭，可在�
 if ($csrfEnabled && $_SERVER['REQUEST_METHOD'] === 'POST' && !in_array($action, $csrfExemptActions)) {
     $csrfToken = $security->getCsrfTokenFromRequest();
     if (!$security->validateCsrfToken($csrfToken)) {
-        Logger::logSecurityEvent('CSRF验证失败', ['action' => $action]);
+        Logger::getInstance()->logSecurityEvent('CSRF验证失败', ['action' => $action]);
         echo json_encode(['success' => false, 'message' => 'CSRF验证失败，请刷新页面重试']);
         exit;
     }
@@ -298,7 +298,7 @@ switch ($action) {
                 'csrf_token' => $security->getCsrfToken()
             ]);
         } else {
-            Logger::logSecurityEvent('登录失败，密码错误');
+            Logger::getInstance()->logSecurityEvent('登录失败，密码错误');
             echo json_encode(['success' => false, 'message' => '密码错误']);
         }
         break;
@@ -461,7 +461,7 @@ switch ($action) {
         }
         
         if (!$oldPasswordValid) {
-            Logger::logSecurityEvent('修改密码失败，原密码错误');
+            Logger::getInstance()->logSecurityEvent('修改密码失败，原密码错误');
             echo json_encode(['success' => false, 'message' => '原密码错误']);
             exit;
         }
@@ -1090,7 +1090,8 @@ switch ($action) {
             'rule_type' => $_GET['rule_type'] ?? '',
             'group_tag' => $_GET['group_tag'] ?? '',
             'search' => $_GET['search'] ?? '',
-            'enabled' => isset($_GET['enabled']) ? (bool)$_GET['enabled'] : null
+            'enabled' => isset($_GET['enabled']) ? (bool)$_GET['enabled'] : null,
+            'has_clicks' => isset($_GET['has_clicks']) && $_GET['has_clicks'] === 'true'
         ];
         
         $page = max(1, (int)($_GET['page'] ?? 1));
@@ -2906,7 +2907,7 @@ switch ($action) {
             exit;
         }
         
-        $stmt = $db->query("SELECT id, name, token, permissions, rate_limit, enabled, last_used_at, call_count, created_at, expires_at, note FROM api_tokens ORDER BY id DESC");
+        $stmt = $db->getPdo()->query("SELECT id, name, token, permissions, rate_limit, enabled, last_used_at, call_count, created_at, expires_at, note FROM api_tokens ORDER BY id DESC");
         $tokens = $stmt->fetchAll(PDO::FETCH_ASSOC);
         
         foreach ($tokens as &$t) {
@@ -2938,14 +2939,14 @@ switch ($action) {
         $expiresAt = !empty($input['expires_at']) ? $input['expires_at'] : null;
         $note = $input['note'] ?? '';
         
-        $stmt = $db->prepare("INSERT INTO api_tokens (name, token, permissions, rate_limit, expires_at, note) VALUES (?, ?, ?, ?, ?, ?)");
+        $stmt = $db->getPdo()->prepare("INSERT INTO api_tokens (name, token, permissions, rate_limit, expires_at, note) VALUES (?, ?, ?, ?, ?, ?)");
         $stmt->execute([$name, $token, $permissions, $rateLimit, $expiresAt, $note]);
         
         echo json_encode([
             'success' => true, 
             'message' => 'Token创建成功',
             'data' => [
-                'id' => $db->lastInsertId(),
+                'id' => $db->getPdo()->lastInsertId(),
                 'token' => $token  // 仅创建时返回完整token
             ]
         ]);
@@ -2999,7 +3000,7 @@ switch ($action) {
         
         $params[] = $id;
         $sql = "UPDATE api_tokens SET " . implode(', ', $updates) . " WHERE id = ?";
-        $db->prepare($sql)->execute($params);
+        $db->getPdo()->prepare($sql)->execute($params);
         
         echo json_encode(['success' => true, 'message' => '更新成功']);
         break;
@@ -3017,8 +3018,8 @@ switch ($action) {
             exit;
         }
         
-        $db->prepare("DELETE FROM api_tokens WHERE id = ?")->execute([$id]);
-        $db->prepare("DELETE FROM api_logs WHERE token_id = ?")->execute([$id]);
+        $db->getPdo()->prepare("DELETE FROM api_tokens WHERE id = ?")->execute([$id]);
+        $db->getPdo()->prepare("DELETE FROM api_logs WHERE token_id = ?")->execute([$id]);
         
         echo json_encode(['success' => true, 'message' => '删除成功']);
         break;
@@ -3037,7 +3038,7 @@ switch ($action) {
         }
         
         $newToken = bin2hex(random_bytes(32));
-        $db->prepare("UPDATE api_tokens SET token = ? WHERE id = ?")->execute([$newToken, $id]);
+        $db->getPdo()->prepare("UPDATE api_tokens SET token = ? WHERE id = ?")->execute([$newToken, $id]);
         
         echo json_encode([
             'success' => true, 
@@ -3067,7 +3068,7 @@ switch ($action) {
         $sql .= " ORDER BY l.id DESC LIMIT ?";
         $params[] = $limit;
         
-        $stmt = $db->prepare($sql);
+        $stmt = $db->getPdo()->prepare($sql);
         $stmt->execute($params);
         $logs = $stmt->fetchAll(PDO::FETCH_ASSOC);
         
@@ -3122,12 +3123,13 @@ switch ($action) {
         logApiCall($db, $tokenData['token_id'], 'shortlink_create', $input, $result['success'] ? 200 : 400);
         
         if ($result['success']) {
+            $data = $result['data'];
             echo json_encode([
                 'success' => true,
                 'data' => [
-                    'id' => $result['id'],
-                    'code' => $result['code'],
-                    'short_url' => $result['short_url'],
+                    'id' => $data['id'],
+                    'code' => $data['match_key'],
+                    'short_url' => $data['jump_url'],
                     'target_url' => $targetUrl
                 ]
             ]);
@@ -3213,10 +3215,10 @@ switch ($action) {
         $limit = min(100, max(1, intval($input['limit'] ?? $_GET['limit'] ?? 20)));
         $offset = ($page - 1) * $limit;
         
-        $stmt = $db->query("SELECT COUNT(*) FROM jump_rules WHERE rule_type = 'code'");
+        $stmt = $db->getPdo()->query("SELECT COUNT(*) FROM jump_rules WHERE rule_type = 'code'");
         $total = $stmt->fetchColumn();
         
-        $stmt = $db->prepare("SELECT id, match_key as code, target_url, title, total_clicks, unique_visitors, enabled, created_at FROM jump_rules WHERE rule_type = 'code' ORDER BY id DESC LIMIT ? OFFSET ?");
+        $stmt = $db->getPdo()->prepare("SELECT id, match_key as code, target_url, title, total_clicks, unique_visitors, enabled, created_at FROM jump_rules WHERE rule_type = 'code' ORDER BY id DESC LIMIT ? OFFSET ?");
         $stmt->execute([$limit, $offset]);
         $rules = $stmt->fetchAll(PDO::FETCH_ASSOC);
         
@@ -3294,7 +3296,7 @@ switch ($action) {
             exit;
         }
         
-        $stmt = $db->query("SELECT id, domain, name, is_default, enabled FROM jump_domains WHERE enabled = 1 ORDER BY is_default DESC, id ASC");
+        $stmt = $db->getPdo()->query("SELECT id, domain, name, is_default, enabled FROM jump_domains WHERE enabled = 1 ORDER BY is_default DESC, id ASC");
         $domains = $stmt->fetchAll(PDO::FETCH_ASSOC);
         
         // 处理域名格式
@@ -3355,7 +3357,7 @@ switch ($action) {
         // 获取最近7天的点击趋势 (如果有click_logs表)
         $dailyStats = [];
         try {
-            $stmt = $db->prepare("
+            $stmt = $db->getPdo()->prepare("
                 SELECT DATE(created_at) as date, COUNT(*) as clicks 
                 FROM click_logs 
                 WHERE rule_id = ? AND created_at >= DATE_SUB(NOW(), INTERVAL 7 DAY)
@@ -3415,12 +3417,12 @@ switch ($action) {
         
         if (!empty($codes)) {
             $placeholders = implode(',', array_fill(0, count($codes), '?'));
-            $stmt = $db->prepare("SELECT id, match_key as code, target_url, title, total_clicks, unique_visitors, enabled, created_at FROM jump_rules WHERE match_key IN ($placeholders)");
+            $stmt = $db->getPdo()->prepare("SELECT id, match_key as code, target_url, title, total_clicks, unique_visitors, enabled, created_at FROM jump_rules WHERE match_key IN ($placeholders)");
             $stmt->execute($codes);
             $results = $stmt->fetchAll(PDO::FETCH_ASSOC);
         } elseif (!empty($ids)) {
             $placeholders = implode(',', array_fill(0, count($ids), '?'));
-            $stmt = $db->prepare("SELECT id, match_key as code, target_url, title, total_clicks, unique_visitors, enabled, created_at FROM jump_rules WHERE id IN ($placeholders)");
+            $stmt = $db->getPdo()->prepare("SELECT id, match_key as code, target_url, title, total_clicks, unique_visitors, enabled, created_at FROM jump_rules WHERE id IN ($placeholders)");
             $stmt->execute($ids);
             $results = $stmt->fetchAll(PDO::FETCH_ASSOC);
         }

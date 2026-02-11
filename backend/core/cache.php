@@ -1,15 +1,21 @@
 <?php
 /**
- * 高性能缓存服务
+ * 高性能多级缓存服务
  * 支持：缓存穿透防护、缓存击穿防护、缓存雪崩防护、缓存一致性
+ * 
+ * 缓存层级: Local Memory -> APCu -> Redis (可选)
+ * TTL抖动策略：防止缓存雪崩
  */
 
 class CacheService {
     private static $instance = null;
     
-    // 内存缓存（进程级）
+    // 内存缓存（进程级，最快）
     private $memoryCache = [];
     private $memoryCacheTime = [];
+    
+    // Redis连接（可选）
+    private $redis = null;
     
     // 配置
     private $config = [
@@ -18,8 +24,16 @@ class CacheService {
         'lock_timeout' => 5,            // 锁超时5秒
         'lock_wait' => 100000,          // 锁等待100ms
         'max_memory_items' => 10000,    // 内存缓存最大条目
-        'ttl_random_range' => 60,       // TTL随机范围（防雪崩）
+        'ttl_jitter_percent' => 20,     // TTL抖动百分比（防雪崩）
+        'local_ttl' => 10,              // 本地缓存短TTL（秒）
+        'enable_redis' => false,        // 是否启用Redis
+        'redis_prefix' => 'ipmgr:',     // Redis键前缀
     ];
+    
+    // 缓存层级
+    const LAYER_MEMORY = 'memory';
+    const LAYER_APCU = 'apcu';
+    const LAYER_REDIS = 'redis';
     
     // 布隆过滤器（简化版）
     private $bloomFilter = [];
@@ -31,6 +45,12 @@ class CacheService {
     // APCu是否可用
     private $apcuEnabled = false;
     
+    // 统计
+    private $stats = [
+        'hits' => ['memory' => 0, 'apcu' => 0, 'redis' => 0],
+        'misses' => 0,
+    ];
+    
     private function __construct() {
         $this->lockDir = sys_get_temp_dir() . '/ip_manager_locks';
         if (!is_dir($this->lockDir)) {
@@ -39,6 +59,62 @@ class CacheService {
         
         // 检测APCu
         $this->apcuEnabled = function_exists('apcu_fetch') && apcu_enabled();
+        
+        // 初始化Redis（如果配置了）
+        $this->initRedis();
+        
+        // 从环境变量加载配置
+        $this->loadConfig();
+    }
+    
+    /**
+     * 从环境变量加载配置
+     */
+    private function loadConfig(): void {
+        if (getenv('CACHE_DEFAULT_TTL')) {
+            $this->config['default_ttl'] = (int)getenv('CACHE_DEFAULT_TTL');
+        }
+        if (getenv('CACHE_LOCAL_TTL')) {
+            $this->config['local_ttl'] = (int)getenv('CACHE_LOCAL_TTL');
+        }
+        if (getenv('CACHE_TTL_JITTER')) {
+            $this->config['ttl_jitter_percent'] = (int)getenv('CACHE_TTL_JITTER');
+        }
+    }
+    
+    /**
+     * 初始化Redis连接
+     */
+    private function initRedis(): void {
+        if (!class_exists('Redis')) {
+            return;
+        }
+        
+        $redisHost = getenv('REDIS_HOST');
+        if (!$redisHost) {
+            return;
+        }
+        
+        try {
+            $this->redis = new Redis();
+            $this->redis->connect(
+                $redisHost,
+                (int)(getenv('REDIS_PORT') ?: 6379),
+                2.0  // 连接超时
+            );
+            
+            $redisPass = getenv('REDIS_PASSWORD');
+            if ($redisPass) {
+                $this->redis->auth($redisPass);
+            }
+            
+            $this->config['enable_redis'] = true;
+        } catch (Exception $e) {
+            $this->redis = null;
+            if (class_exists('Logger')) {
+                Logger::logWarning('Redis连接失败，降级到APCu/内存', ['error' => $e->getMessage()]);
+            }
+        }
     }
     
     public static function getInstance(): self {
@@ -49,43 +125,76 @@ class CacheService {
     }
     
     /**
-     * 获取缓存（带穿透/击穿保护）
+     * 计算带抖动的TTL（防雪崩）
+     */
+    private function jitterTtl(int $ttl): int {
+        $jitterRange = (int)($ttl * $this->config['ttl_jitter_percent'] / 100);
+        return $ttl + mt_rand(-$jitterRange, $jitterRange);
+    }
+    
+    /**
+     * 获取缓存（带穿透/击穿保护，多级回退）
      * @param string $key 缓存键
      * @param callable $loader 数据加载器（缓存未命中时调用）
      * @param int $ttl 过期时间（秒）
+     * @param array $options 选项 ['local_ttl' => int, 'skip_local' => bool]
      * @return mixed
      */
-    public function get(string $key, callable $loader, int $ttl = 0): mixed {
+    public function get(string $key, callable $loader, int $ttl = 0, array $options = []): mixed {
         if ($ttl <= 0) {
             $ttl = $this->config['default_ttl'];
         }
         
-        // 添加随机TTL防雪崩
-        $ttl += mt_rand(0, $this->config['ttl_random_range']);
+        // 添加TTL抖动防雪崩
+        $ttl = $this->jitterTtl($ttl);
+        $localTtl = $options['local_ttl'] ?? $this->config['local_ttl'];
         
-        // 1. 尝试从内存缓存获取
-        $result = $this->getFromMemory($key);
-        if ($result !== null) {
-            return $result['value'];
+        // 1. 尝试从内存缓存获取（最快）
+        if (empty($options['skip_local'])) {
+            $result = $this->getFromMemory($key);
+            if ($result !== null) {
+                $this->stats['hits']['memory']++;
+                return $result['value'];
+            }
         }
         
         // 2. 尝试从APCu获取
         if ($this->apcuEnabled) {
             $result = apcu_fetch($key, $success);
             if ($success) {
-                // 回填内存缓存
-                $this->setToMemory($key, $result, $ttl);
+                $this->stats['hits']['apcu']++;
+                // 回填内存缓存（短TTL）
+                $this->setToMemory($key, $result, $localTtl);
                 return $result;
             }
         }
         
-        // 3. 检查布隆过滤器（防穿透）
+        // 3. 尝试从Redis获取
+        if ($this->redis) {
+            try {
+                $result = $this->redis->get($this->config['redis_prefix'] . $key);
+                if ($result !== false) {
+                    $this->stats['hits']['redis']++;
+                    $value = json_decode($result, true);
+                    // 回填上层缓存
+                    $this->setToMemory($key, $value, $localTtl);
+                    if ($this->apcuEnabled) {
+                        apcu_store($key, $value, $ttl);
+                    }
+                    return $value;
+                }
+            } catch (Exception $e) {
+                // Redis失败，继续
+            }
+        }
+        
+        // 4. 检查布隆过滤器（防穿透）
         if ($this->bloomCheck($key) === false) {
-            // 布隆过滤器说肯定不存在
+            $this->stats['misses']++;
             return null;
         }
         
-        // 4. 获取互斥锁（防击穿）
+        // 5. 获取互斥锁（防击穿）
         $lockKey = "lock:{$key}";
         $locked = $this->lock($lockKey, $this->config['lock_timeout']);
         
@@ -102,24 +211,24 @@ class CacheService {
                     return $result;
                 }
             }
-            // 仍未命中，执行加载
         }
         
         try {
-            // 5. 执行数据加载
+            // 6. 执行数据加载
             $value = $loader();
+            $this->stats['misses']++;
             
-            // 6. 更新布隆过滤器
+            // 7. 更新布隆过滤器
             if ($value !== null) {
                 $this->bloomAdd($key);
             }
             
-            // 7. 写入缓存
-            $this->set($key, $value, $value === null ? $this->config['null_ttl'] : $ttl);
+            // 8. 写入所有缓存层
+            $this->setAll($key, $value, $value === null ? $this->config['null_ttl'] : $ttl);
             
             return $value;
         } finally {
-            // 8. 释放锁
+            // 9. 释放锁
             if ($locked) {
                 $this->unlock($lockKey);
             }
@@ -127,19 +236,38 @@ class CacheService {
     }
     
     /**
-     * 设置缓存
+     * 设置缓存（写入所有层）
      */
     public function set(string $key, mixed $value, int $ttl = 0): bool {
         if ($ttl <= 0) {
             $ttl = $this->config['default_ttl'];
         }
-        
-        // 写入内存缓存
-        $this->setToMemory($key, $value, $ttl);
+        return $this->setAll($key, $value, $ttl);
+    }
+    
+    /**
+     * 写入所有缓存层
+     */
+    private function setAll(string $key, mixed $value, int $ttl): bool {
+        // 写入内存缓存（短TTL）
+        $this->setToMemory($key, $value, min($ttl, $this->config['local_ttl']));
         
         // 写入APCu
         if ($this->apcuEnabled) {
             apcu_store($key, $value, $ttl);
+        }
+        
+        // 写入Redis
+        if ($this->redis) {
+            try {
+                $this->redis->setex(
+                    $this->config['redis_prefix'] . $key, 
+                    $ttl, 
+                    json_encode($value, JSON_UNESCAPED_UNICODE)
+                );
+            } catch (Exception $e) {
+                // Redis写入失败，不影响主流程
+            }
         }
         
         return true;
@@ -149,10 +277,17 @@ class CacheService {
      * 删除缓存（延迟双删保证一致性）
      */
     public function delete(string $key, bool $doubleDelete = true): bool {
-        // 第一次删除
+        // 第一次删除：所有层
         $this->deleteFromMemory($key);
         if ($this->apcuEnabled) {
             apcu_delete($key);
+        }
+        if ($this->redis) {
+            try {
+                $this->redis->del($this->config['redis_prefix'] . $key);
+            } catch (Exception $e) {
+                // 忽略
+            }
         }
         
         // 延迟双删（异步或注册shutdown）
@@ -162,6 +297,13 @@ class CacheService {
                 $this->deleteFromMemory($key);
                 if ($this->apcuEnabled) {
                     apcu_delete($key);
+                }
+                if ($this->redis) {
+                    try {
+                        $this->redis->del($this->config['redis_prefix'] . $key);
+                    } catch (Exception $e) {
+                        // 忽略
+                    }
                 }
             });
         }

@@ -71,6 +71,7 @@
           </el-button>
         </div>
         <div class="toolbar-right">
+          <el-checkbox v-model="filters.has_clicks" label="仅看有点击" @change="loadData" />
           <el-select v-model="filters.rule_type" placeholder="规则类型" clearable style="width: 120px" @change="loadData">
             <el-option label="全部类型" value="" />
             <el-option label="短链跳转" value="code" />
@@ -396,7 +397,8 @@ const stats = reactive({
 const filters = reactive({
   rule_type: '',
   group_tag: '',
-  search: ''
+  search: '',
+  has_clicks: false
 })
 const pagination = reactive({
   page: 1,
