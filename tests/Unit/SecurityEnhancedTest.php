@@ -161,10 +161,11 @@ class SecurityEnhancedTest extends TestCase
     
     public function testMaskPhone(): void
     {
+        // 11位标准手机号：前3 + **** + 后4
         $this->assertEquals('138****5678', $this->security->maskPhone('13812345678'));
-        // 7位数字，按逻辑 strlen >= 7 走正常脱敏
-        $this->assertEquals('123****4567', $this->security->maskPhone('1234567890'));
-        // 6位数字，全部脱敏
+        // 10位数字 '1234567890'：前3='123' + **** + 后4='7890'
+        $this->assertEquals('123****7890', $this->security->maskPhone('1234567890'));
+        // 6位数字，长度 < 7，全部脱敏
         $this->assertEquals('******', $this->security->maskPhone('123456'));
     }
     
