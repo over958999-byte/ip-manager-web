@@ -70,10 +70,13 @@ request.interceptors.request.use(
       config.headers['X-CSRF-Token'] = csrfToken
     }
     
-    // 添加时间戳防止浏览器缓存
-    config.params = {
-      ...config.params,
-      _t: Date.now()
+    // 仅对 GET 请求添加时间戳防止浏览器缓存
+    // POST/PUT/DELETE 请求不需要时间戳
+    if (config.method === 'get') {
+      config.params = {
+        ...config.params,
+        _t: Date.now()
+      }
     }
     
     return config

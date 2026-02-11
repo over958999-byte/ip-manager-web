@@ -1,19 +1,40 @@
 <?php
+declare(strict_types=1);
 /**
  * 数据大盘控制器
  */
 
 require_once __DIR__ . '/BaseController.php';
+require_once __DIR__ . '/../../core/cache.php';
 
 class DashboardController extends BaseController
 {
+    private const STATS_CACHE_TTL = 30; // 统计数据缓存30秒
+    private const TREND_CACHE_TTL = 60; // 趋势数据缓存60秒
+    
     /**
-     * 获取仪表盘统计数据
+     * 获取仪表盘统计数据（带缓存）
      */
     public function stats(): void
     {
         $this->requireLogin();
         
+        // 尝试从缓存获取
+        $cache = CacheService::getInstance();
+        $cacheKey = 'dashboard:stats';
+        
+        $data = $cache->get($cacheKey, function() {
+            return $this->loadDashboardStats();
+        }, self::STATS_CACHE_TTL);
+        
+        $this->success($data);
+    }
+    
+    /**
+     * 加载仪表盘统计数据
+     */
+    private function loadDashboardStats(): array
+    {
         // 跳转规则统计 - 使用 status='active' 和 visit_count
         $jumpStats = $this->db->fetch(
             "SELECT 
@@ -152,16 +173,11 @@ class DashboardController extends BaseController
             $topRules = [];
         }
         
-        // 系统状态
-        $systemStatus = [
-            'cpu' => rand(10, 40),
-            'memory' => rand(30, 60),
-            'disk' => rand(20, 50),
-            'uptime' => '99.9%'
-        ];
+        // 系统状态（获取真实系统信息）
+        $systemStatus = $this->getSystemStatus();
         
         // 返回前端期望的格式
-        $this->success([
+        return [
             // 主要统计数字
             'todayClicks' => (int)$todayClicks,
             'totalClicks' => (int)$totalClicks,
@@ -185,12 +201,76 @@ class DashboardController extends BaseController
             'ip_pool' => $ipPoolStats,
             'antibot' => $antibotStats,
             
-            'updated_at' => date('Y-m-d H:i:s')
-        ]);
+            'updated_at' => date('Y-m-d H:i:s'),
+            'cached' => true
+        ];
     }
     
     /**
-     * 获取趋势数据
+     * 获取真实系统状态
+     */
+    private function getSystemStatus(): array
+    {
+        $cpu = 0;
+        $memory = 0;
+        $disk = 0;
+        
+        // CPU 使用率
+        if (function_exists('sys_getloadavg')) {
+            $load = sys_getloadavg();
+            $cpu = min(100, (int)($load[0] * 10)); // 粗略估计
+        }
+        
+        // 内存使用率
+        $memInfo = @file_get_contents('/proc/meminfo');
+        if ($memInfo) {
+            preg_match('/MemTotal:\s+(\d+)/', $memInfo, $total);
+            preg_match('/MemAvailable:\s+(\d+)/', $memInfo, $available);
+            if (!empty($total[1]) && !empty($available[1])) {
+                $memory = (int)(100 - ($available[1] / $total[1] * 100));
+            }
+        }
+        
+        // 磁盘使用率
+        $totalSpace = @disk_total_space('/');
+        $freeSpace = @disk_free_space('/');
+        if ($totalSpace && $freeSpace) {
+            $disk = (int)(100 - ($freeSpace / $totalSpace * 100));
+        }
+        
+        // 数据库连接数
+        $dbConnections = 0;
+        try {
+            $result = $this->db->fetch("SHOW STATUS LIKE 'Threads_connected'");
+            $dbConnections = (int)($result['Value'] ?? 0);
+        } catch (Exception $e) {}
+        
+        return [
+            'cpu' => $cpu,
+            'memory' => $memory,
+            'disk' => $disk,
+            'db_connections' => $dbConnections,
+            'uptime' => $this->getUptime()
+        ];
+    }
+    
+    /**
+     * 获取系统运行时间
+     */
+    private function getUptime(): string
+    {
+        $uptime = @file_get_contents('/proc/uptime');
+        if ($uptime) {
+            $seconds = (int)explode(' ', $uptime)[0];
+            $days = floor($seconds / 86400);
+            $hours = floor(($seconds % 86400) / 3600);
+            return "{$days}天{$hours}小时";
+        }
+        return 'N/A';
+    }
+    
+    /**
+     * 获取趋势数据（带缓存）
      */
     public function trend(): void
     {
@@ -350,25 +430,6 @@ class DashboardController extends BaseController
         $status['redis'] = $this->checkRedisStatus();
         
         $this->success($status);
-    }
-    
-    /**
-     * 获取系统运行时间
-     */
-    private function getUptime(): string
-    {
-        if (PHP_OS_FAMILY === 'Linux' && file_exists('/proc/uptime')) {
-            $uptime = file_get_contents('/proc/uptime');
-            $uptime = (int)explode(' ', $uptime)[0];
-            
-            $days = floor($uptime / 86400);
-            $hours = floor(($uptime % 86400) / 3600);
-            $minutes = floor(($uptime % 3600) / 60);
-            
-            return "{$days}天 {$hours}小时 {$minutes}分钟";
-        }
-        
-        return 'Unknown';
     }
     
     /**

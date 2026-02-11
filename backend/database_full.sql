@@ -1186,6 +1186,165 @@ DO
 CALL aggregate_daily_stats();
 
 -- =====================================================
+-- 第十六部分: 性能优化索引
+-- =====================================================
+
+-- Dashboard 查询优化索引
+ALTER TABLE jump_logs ADD INDEX IF NOT EXISTS idx_visited_device (visited_at, device_type);
+ALTER TABLE jump_logs ADD INDEX IF NOT EXISTS idx_visited_country (visited_at, country_code);
+ALTER TABLE jump_logs ADD INDEX IF NOT EXISTS idx_date_rule (DATE(visited_at), rule_id);
+
+-- 审计日志查询优化
+ALTER TABLE audit_logs ADD INDEX IF NOT EXISTS idx_created_action (created_at, action);
+ALTER TABLE audit_logs ADD INDEX IF NOT EXISTS idx_user_created (user_id, created_at);
+
+-- API Token 查询优化
+ALTER TABLE api_tokens ADD INDEX IF NOT EXISTS idx_enabled_expires (enabled, expires_at);
+
+-- 短链接查询优化  
+ALTER TABLE short_links ADD INDEX IF NOT EXISTS idx_code_enabled (code, enabled);
+
+-- =====================================================
+-- 第十七部分: 日志归档表
+-- =====================================================
+
+-- 跳转日志归档表
+CREATE TABLE IF NOT EXISTS jump_logs_archive (
+    id BIGINT PRIMARY KEY,
+    rule_id INT NOT NULL,
+    domain VARCHAR(255),
+    path VARCHAR(500),
+    target_url TEXT,
+    ip VARCHAR(45),
+    country_code VARCHAR(2),
+    user_agent TEXT,
+    referer TEXT,
+    device_type VARCHAR(20),
+    browser VARCHAR(50),
+    os VARCHAR(50),
+    is_unique TINYINT(1) DEFAULT 0,
+    response_time_ms INT DEFAULT 0,
+    visited_at TIMESTAMP,
+    archived_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    
+    INDEX idx_visited (visited_at),
+    INDEX idx_rule (rule_id),
+    INDEX idx_archived (archived_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- 审计日志归档表
+CREATE TABLE IF NOT EXISTS audit_logs_archive (
+    id INT PRIMARY KEY,
+    user_id INT,
+    username VARCHAR(50),
+    action VARCHAR(100),
+    resource_type VARCHAR(50),
+    resource_id VARCHAR(100),
+    old_value JSON,
+    new_value JSON,
+    ip VARCHAR(45),
+    user_agent TEXT,
+    status VARCHAR(20),
+    created_at TIMESTAMP,
+    archived_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    
+    INDEX idx_created (created_at),
+    INDEX idx_archived (archived_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- =====================================================
+-- 第十八部分: 归档存储过程
+-- =====================================================
+
+DELIMITER //
+
+-- 归档旧日志数据
+DROP PROCEDURE IF EXISTS archive_old_logs//
+CREATE PROCEDURE archive_old_logs(IN retention_days INT)
+BEGIN
+    DECLARE rows_archived INT DEFAULT 0;
+    DECLARE batch_size INT DEFAULT 10000;
+    DECLARE archive_date DATE;
+    
+    SET archive_date = DATE_SUB(CURDATE(), INTERVAL retention_days DAY);
+    
+    -- 归档跳转日志（分批处理避免锁表太久）
+    REPEAT
+        INSERT INTO jump_logs_archive 
+        SELECT *, NOW() as archived_at 
+        FROM jump_logs 
+        WHERE DATE(visited_at) < archive_date
+        LIMIT batch_size;
+        
+        SET rows_archived = ROW_COUNT();
+        
+        IF rows_archived > 0 THEN
+            DELETE FROM jump_logs 
+            WHERE DATE(visited_at) < archive_date
+            LIMIT batch_size;
+        END IF;
+        
+        -- 避免长事务
+        DO SLEEP(0.1);
+        
+    UNTIL rows_archived < batch_size END REPEAT;
+    
+    -- 归档审计日志
+    SET rows_archived = 0;
+    REPEAT
+        INSERT INTO audit_logs_archive 
+        SELECT *, NOW() as archived_at 
+        FROM audit_logs 
+        WHERE DATE(created_at) < archive_date
+        LIMIT batch_size;
+        
+        SET rows_archived = ROW_COUNT();
+        
+        IF rows_archived > 0 THEN
+            DELETE FROM audit_logs 
+            WHERE DATE(created_at) < archive_date
+            LIMIT batch_size;
+        END IF;
+        
+        DO SLEEP(0.1);
+        
+    UNTIL rows_archived < batch_size END REPEAT;
+    
+    -- 优化表
+    OPTIMIZE TABLE jump_logs;
+    OPTIMIZE TABLE audit_logs;
+END//
+
+-- 清理归档数据（保留1年）
+DROP PROCEDURE IF EXISTS cleanup_archive//
+CREATE PROCEDURE cleanup_archive(IN archive_retention_days INT)
+BEGIN
+    DELETE FROM jump_logs_archive 
+    WHERE archived_at < DATE_SUB(NOW(), INTERVAL archive_retention_days DAY);
+    
+    DELETE FROM audit_logs_archive 
+    WHERE archived_at < DATE_SUB(NOW(), INTERVAL archive_retention_days DAY);
+END//
+
+DELIMITER ;
+
+-- 每周归档事件（保留90天在线数据）
+DROP EVENT IF EXISTS weekly_archive;
+CREATE EVENT IF NOT EXISTS weekly_archive
+ON SCHEDULE EVERY 1 WEEK
+STARTS CURRENT_DATE + INTERVAL 1 DAY + INTERVAL 2 HOUR
+DO
+CALL archive_old_logs(90);
+
+-- 每月清理归档（保留365天归档）
+DROP EVENT IF EXISTS monthly_archive_cleanup;
+CREATE EVENT IF NOT EXISTS monthly_archive_cleanup
+ON SCHEDULE EVERY 1 MONTH
+STARTS CURRENT_DATE + INTERVAL 1 MONTH + INTERVAL 3 HOUR
+DO
+CALL cleanup_archive(365);
+
+-- =====================================================
 -- 完成
 -- =====================================================
 

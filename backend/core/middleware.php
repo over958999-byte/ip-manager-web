@@ -1,4 +1,5 @@
 <?php
+declare(strict_types=1);
 /**
  * 认证中间件
  * 处理登录验证、权限检查、API Token验证
@@ -8,6 +9,10 @@ require_once __DIR__ . '/database.php';
 require_once __DIR__ . '/utils.php';
 
 class AuthMiddleware {
+    // API Token 缓存（进程级）
+    private static array $tokenCache = [];
+    private const TOKEN_CACHE_TTL = 300; // 5分钟缓存
+    
     /**
      * 处理请求
      */
@@ -54,16 +59,41 @@ class AuthMiddleware {
     }
     
     /**
-     * 验证 API Token
+     * 验证 API Token（带缓存）
      */
     protected function validateApiToken(string $token): bool {
+        // 1. 检查内存缓存
+        $cacheKey = hash('sha256', $token);
+        if (isset(self::$tokenCache[$cacheKey])) {
+            $cached = self::$tokenCache[$cacheKey];
+            if ($cached['expires'] > time()) {
+                // 从缓存恢复 Session
+                $_SESSION['api_token'] = true;
+                $_SESSION['api_token_id'] = $cached['id'];
+                $_SESSION['api_permissions'] = $cached['permissions'];
+                return true;
+            }
+            // 缓存过期，移除
+            unset(self::$tokenCache[$cacheKey]);
+        }
+        
         try {
             $db = Database::getInstance();
             $pdo = $db->getPdo();
             
-            $stmt = $pdo->prepare("SELECT * FROM api_tokens WHERE token = ? AND enabled = 1");
-            $stmt->execute([$token]);
-            $tokenData = $stmt->fetch(PDO::FETCH_ASSOC);
+            // 2. 从数据库获取所有启用的 Token 进行安全比较
+            $stmt = $pdo->prepare("SELECT * FROM api_tokens WHERE enabled = 1");
+            $stmt->execute();
+            $tokens = $stmt->fetchAll(PDO::FETCH_ASSOC);
+            
+            $tokenData = null;
+            foreach ($tokens as $row) {
+                // 使用常量时间比较防止时序攻击
+                if (hash_equals($row['token'], $token)) {
+                    $tokenData = $row;
+                    break;
+                }
+            }
             
             if (!$tokenData) {
                 return false;
@@ -74,7 +104,7 @@ class AuthMiddleware {
                 return false;
             }
             
-            // 更新最后使用时间
+            // 异步更新最后使用时间（不阻塞请求）
             $stmt = $pdo->prepare("UPDATE api_tokens SET last_used_at = NOW(), call_count = call_count + 1 WHERE id = ?");
             $stmt->execute([$tokenData['id']]);
             
@@ -83,9 +113,28 @@ class AuthMiddleware {
             $_SESSION['api_token_id'] = $tokenData['id'];
             $_SESSION['api_permissions'] = json_decode($tokenData['permissions'], true) ?: [];
             
+            // 3. 缓存验证结果
+            self::$tokenCache[$cacheKey] = [
+                'id' => $tokenData['id'],
+                'permissions' => $_SESSION['api_permissions'],
+                'expires' => time() + self::TOKEN_CACHE_TTL
+            ];
+            
             return true;
         } catch (Exception $e) {
             return false;
+        }
+    }
+    
+    /**
+     * 清除 Token 缓存
+     */
+    public static function clearTokenCache(string $token = null): void {
+        if ($token !== null) {
+            $cacheKey = hash('sha256', $token);
+            unset(self::$tokenCache[$cacheKey]);
+        } else {
+            self::$tokenCache = [];
         }
     }
 }

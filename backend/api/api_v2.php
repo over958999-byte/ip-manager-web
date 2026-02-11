@@ -1,4 +1,5 @@
 <?php
+declare(strict_types=1);
 /**
  * API v2 入口点
  * 使用新的 MVC 路由系统
@@ -7,6 +8,40 @@
 // 错误处理
 error_reporting(E_ALL);
 ini_set('display_errors', 0);
+
+// 全局异常处理器
+set_exception_handler(function(Throwable $e) {
+    // 记录错误日志
+    error_log(sprintf(
+        "[%s] Uncaught %s: %s in %s:%d\nStack trace:\n%s",
+        date('Y-m-d H:i:s'),
+        get_class($e),
+        $e->getMessage(),
+        $e->getFile(),
+        $e->getLine(),
+        $e->getTraceAsString()
+    ));
+    
+    // 返回统一的错误响应
+    http_response_code(500);
+    header('Content-Type: application/json; charset=UTF-8');
+    echo json_encode([
+        'success' => false,
+        'code' => 500,
+        'message' => '服务器内部错误',
+        'timestamp' => time()
+    ], JSON_UNESCAPED_UNICODE);
+    exit;
+});
+
+// 全局错误处理器（将错误转换为异常）
+set_error_handler(function(int $errno, string $errstr, string $errfile, int $errline) {
+    // 不处理被抑制的错误
+    if (!(error_reporting() & $errno)) {
+        return false;
+    }
+    throw new ErrorException($errstr, 0, $errno, $errfile, $errline);
+});
 
 // 设置响应头
 header('Content-Type: application/json; charset=UTF-8');
