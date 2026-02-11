@@ -295,10 +295,7 @@ const api = {
   domainSafetyStats: () => request.get('?action=domain_safety_stats'),
   domainSafetyLogs: (limit = 100) => request.get('?action=domain_safety_logs', { params: { limit } }),
   domainSafetyConfig: () => request.get('?action=domain_safety_config'),
-  domainSafetySaveConfig: (config) => request.post('?action=domain_safety_config', { config }),
-  
-  // 通用请求方法
-  request: (action, data = {}) => request.post(`?action=${action}`, data)
+  domainSafetySaveConfig: (config) => request.post('?action=domain_safety_config', { config })
 }
 
 // 导出 getAntibotStats 供 Dashboard 使用
