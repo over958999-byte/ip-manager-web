@@ -268,10 +268,11 @@ class PrometheusMetrics {
         try {
             $pdo = $this->db->getPdo();
             
-            // IP 池统计
-            $stmt = $pdo->query("SELECT status, COUNT(*) as cnt FROM ip_pool GROUP BY status");
-            while ($row = $stmt->fetch(PDO::FETCH_ASSOC)) {
-                $this->setGauge('ip_manager_ip_pool_total', (float)$row['cnt'], [$row['status'] ?? 'unknown']);
+            // IP 池统计 (简单表结构，只统计总数)
+            $stmt = $pdo->query("SELECT COUNT(*) as cnt FROM ip_pool");
+            $row = $stmt->fetch(PDO::FETCH_ASSOC);
+            if ($row) {
+                $this->setGauge('ip_manager_ip_pool_total', (float)$row['cnt'], ['active']);
             }
             
             // 域名统计 (使用 jump_domains 表)

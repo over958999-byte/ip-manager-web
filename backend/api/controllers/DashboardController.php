@@ -41,12 +41,12 @@ class DashboardController extends BaseController
             FROM jump_domains"
         );
         
-        // IP 池统计
+        // IP 池统计 (简单表结构，只有 id, ip, created_at)
         $ipPoolStats = $this->db->fetch(
             "SELECT 
                 COUNT(*) as total,
-                SUM(CASE WHEN status = 'active' THEN 1 ELSE 0 END) as active,
-                SUM(CASE WHEN status = 'blocked' THEN 1 ELSE 0 END) as blocked
+                COUNT(*) as active,
+                0 as blocked
             FROM ip_pool"
         ) ?: ['total' => 0, 'active' => 0, 'blocked' => 0];
         
@@ -57,11 +57,11 @@ class DashboardController extends BaseController
             [$today]
         ) ?? 0;
         
-        // 反爬虫统计
+        // 反爬虫统计 (表结构: id, ip, reason, blocked_at, until_at)
         $antibotStats = $this->db->fetch(
             "SELECT 
                 COUNT(*) as blocked_ips,
-                COALESCE(SUM(block_count), 0) as total_blocks
+                COUNT(*) as total_blocks
             FROM antibot_blocks"
         ) ?: ['blocked_ips' => 0, 'total_blocks' => 0];
         
