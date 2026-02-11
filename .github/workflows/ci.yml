@@ -225,13 +225,15 @@ jobs:
         if: always()
 
   # ============================================
-  # Docker 镜像构建
+  # Docker 镜像构建（可选，用于容器化部署）
   # ============================================
   docker-build:
     name: Build Docker Image
     runs-on: ubuntu-latest
     needs: [frontend]
     if: github.event_name == 'push'
+    # Docker 构建失败不影响整体 CI 状态
+    continue-on-error: true
     
     permissions:
       contents: read
