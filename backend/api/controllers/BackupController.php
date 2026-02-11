@@ -17,6 +17,47 @@ class BackupController extends BaseController
     }
     
     /**
+     * 获取备份配置
+     */
+    public function getConfig(): void
+    {
+        $this->requireLogin();
+        
+        $config = $this->getBackupService()->getConfig();
+        $this->success($config);
+    }
+    
+    /**
+     * 保存备份配置
+     */
+    public function saveConfig(): void
+    {
+        $this->requireLogin();
+        
+        $config = [
+            'backup_dir' => $this->param('backup_dir'),
+            'retention_days' => (int)$this->param('retention_days', 7),
+            'cloud_retention_days' => (int)$this->param('cloud_retention_days', 30),
+            'compress' => (bool)$this->param('compress', true),
+            'encrypt' => (bool)$this->param('encrypt', false),
+            'encrypt_key' => $this->param('encrypt_key', ''),
+            'cloud_provider' => $this->param('cloud_provider'),
+            'cloud_config' => $this->param('cloud_config', []),
+        ];
+        
+        // 过滤掉 null 值
+        $config = array_filter($config, fn($v) => $v !== null);
+        
+        try {
+            $this->getBackupService()->saveConfig($config);
+            $this->audit('backup_config_update', 'backup', null, []);
+            $this->success(null, '备份配置保存成功');
+        } catch (Exception $e) {
+            $this->error('备份配置保存失败: ' . $e->getMessage());
+        }
+    }
+    
+    /**
      * 获取备份列表
      */
     public function list(): void
@@ -24,7 +65,7 @@ class BackupController extends BaseController
         $this->requireLogin();
         
         $backups = $this->getBackupService()->getBackupList();
-        $this->success($backups);
+        $this->success(['list' => $backups]);
     }
     
     /**

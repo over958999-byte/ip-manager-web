@@ -1107,7 +1107,8 @@ const loadIpPool = async () => {
   try {
     const res = await api.getIpPool()
     if (res.success) {
-      ipPool.value = (res.ip_pool || []).map(ip => typeof ip === 'string' ? { ip, created_at: '' } : ip)
+      const pool = res.data?.ip_pool || res.ip_pool || []
+      ipPool.value = pool.map(ip => typeof ip === 'string' ? { ip, created_at: '' } : ip)
     }
   } finally {
     loading.ip = false

@@ -14,6 +14,10 @@ header('Access-Control-Allow-Origin: *');
 header('Access-Control-Allow-Methods: GET, POST, PUT, DELETE, OPTIONS');
 header('Access-Control-Allow-Headers: Content-Type, Authorization, X-Requested-With, X-API-Token, X-CSRF-Token');
 header('Access-Control-Max-Age: 86400');
+// 禁用浏览器缓存，确保每次都获取最新数据
+header('Cache-Control: no-cache, no-store, must-revalidate');
+header('Pragma: no-cache');
+header('Expires: 0');
 
 // 处理 OPTIONS 预检请求
 if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
@@ -290,6 +294,8 @@ if (!empty($action)) {
         'api_key_regenerate' => ['POST', '/api/v2/api-tokens/{id}/regenerate'],
         
         // Backups
+        'get_backup_config' => ['GET', '/api/v2/backups/config'],
+        'save_backup_config' => ['POST', '/api/v2/backups/config'],
         'backup_list' => ['GET', '/api/v2/backups'],
         'backup_create' => ['POST', '/api/v2/backups'],
         'backup_restore' => ['POST', '/api/v2/backups/restore'],

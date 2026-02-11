@@ -62,7 +62,7 @@ class AuditController extends BaseController
         );
         
         $this->success([
-            'logs' => $logs,
+            'list' => $logs,
             'total' => $total,
             'page' => $page,
             'limit' => $limit,

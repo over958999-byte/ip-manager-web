@@ -322,11 +322,11 @@ const loadData = async () => {
 
     // 获取反爬虫统计
     const antibotRes = await api.getAntibotStats()
-    if (antibotRes.success) {
-      stats.totalBlocked = antibotRes.stats?.total_blocked || 0
-      stats.currentBlocked = antibotRes.stats?.currently_blocked || 0
-      blockStats.value = antibotRes.stats?.by_reason || {}
-      recentLogs.value = (antibotRes.stats?.recent_logs || []).slice(0, 5)
+    if (antibotRes.success && antibotRes.data) {
+      stats.totalBlocked = antibotRes.data.stats?.total_blocked || 0
+      stats.currentBlocked = antibotRes.data.stats?.currently_blocked || 0
+      blockStats.value = antibotRes.data.stats?.by_reason || {}
+      recentLogs.value = (antibotRes.data.stats?.recent_logs || []).slice(0, 5)
     }
     
     // 加载系统监控数据

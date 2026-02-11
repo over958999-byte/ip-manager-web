@@ -596,14 +596,14 @@ const loadData = async () => {
   loading.value = true
   try {
     const res = await api.getAntibotStats()
-    if (res.success) {
-      stats.value = res.stats || {}
-      blockedList.value = res.blocked_list || []
-      logs.value = res.stats?.recent_logs || []
-      badIpStats.value = res.bad_ip_stats || {}
+    if (res.success && res.data) {
+      stats.value = res.data.stats || {}
+      blockedList.value = res.data.blocked_list || []
+      logs.value = res.data.stats?.recent_logs || []
+      badIpStats.value = res.data.bad_ip_stats || {}
       
       // 合并配置
-      const serverConfig = res.config || {}
+      const serverConfig = res.data.config || {}
       Object.assign(config, serverConfig)
       config.rate_limit = serverConfig.rate_limit || {}
       config.ua_check = serverConfig.ua_check || {}
@@ -625,8 +625,8 @@ const loadData = async () => {
 const loadIpBlacklistStats = async () => {
   try {
     const res = await api.request('ip_blacklist_stats')
-    if (res.success) {
-      ipBlacklistStats.value = res.stats || {}
+    if (res.success && res.data) {
+      ipBlacklistStats.value = res.data.stats || res.data || {}
     }
   } catch (e) {
     // 忽略错误

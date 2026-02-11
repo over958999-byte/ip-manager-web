@@ -20,7 +20,7 @@ class WebhookController extends BaseController
             "SELECT * FROM webhooks ORDER BY created_at DESC"
         );
         
-        $this->success($webhooks);
+        $this->success(['list' => $webhooks]);
     }
     
     /**
@@ -200,6 +200,6 @@ class WebhookController extends BaseController
         
         $logs = $this->db->fetchAll($sql, $params);
         
-        $this->success($logs);
+        $this->success(['list' => $logs]);
     }
 }

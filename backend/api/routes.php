@@ -191,6 +191,8 @@ return function($router) {
     $router->post('/auth/totp/disable', 'AuthController@totpDisable');
     
     // ==================== 备份管理 ====================
+    $router->get('/backups/config', 'BackupController@getConfig');
+    $router->post('/backups/config', 'BackupController@saveConfig');
     $router->get('/backups', 'BackupController@list');
     $router->post('/backups', 'BackupController@create');
     $router->post('/backups/restore', 'BackupController@restore');

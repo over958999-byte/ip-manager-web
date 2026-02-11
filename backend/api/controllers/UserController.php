@@ -18,7 +18,7 @@ class UserController extends BaseController
             "SELECT id, username, email, role, status, last_login, created_at FROM users ORDER BY created_at DESC"
         );
         
-        $this->success($users);
+        $this->success(['list' => $users]);
     }
     
     /**

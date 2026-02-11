@@ -70,6 +70,12 @@ request.interceptors.request.use(
       config.headers['X-CSRF-Token'] = csrfToken
     }
     
+    // 添加时间戳防止浏览器缓存
+    config.params = {
+      ...config.params,
+      _t: Date.now()
+    }
+    
     return config
   },
   error => Promise.reject(error)

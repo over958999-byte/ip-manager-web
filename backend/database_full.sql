@@ -287,6 +287,43 @@ CREATE TABLE IF NOT EXISTS jump_daily_stats (
     INDEX idx_date (date)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+-- 短链接表
+CREATE TABLE IF NOT EXISTS short_links (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    code VARCHAR(50) NOT NULL COMMENT '短码',
+    original_url TEXT NOT NULL COMMENT '原始URL',
+    domain VARCHAR(255) DEFAULT NULL COMMENT '绑定域名',
+    group_tag VARCHAR(100) DEFAULT NULL COMMENT '分组标签',
+    
+    -- 跳转设置
+    redirect_type ENUM('301', '302', '307', 'js', 'meta') DEFAULT '302',
+    
+    -- 过滤条件
+    countries VARCHAR(500) DEFAULT '' COMMENT '允许国家',
+    excluded_countries VARCHAR(500) DEFAULT '' COMMENT '排除国家',
+    device_types VARCHAR(100) DEFAULT '' COMMENT '设备类型',
+    
+    -- 状态和统计
+    enabled TINYINT(1) DEFAULT 1,
+    total_clicks INT UNSIGNED DEFAULT 0,
+    unique_clicks INT UNSIGNED DEFAULT 0,
+    last_click_at TIMESTAMP NULL,
+    
+    -- 时间控制
+    expires_at TIMESTAMP NULL,
+    
+    -- 备注
+    note TEXT,
+    
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    
+    UNIQUE KEY unique_code (code),
+    INDEX idx_domain (domain),
+    INDEX idx_group (group_tag),
+    INDEX idx_enabled (enabled)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 -- =====================================================
 -- 第五部分: 反爬/验证系统
 -- =====================================================
@@ -374,6 +411,36 @@ CREATE TABLE IF NOT EXISTS antibot_sessions (
     
     INDEX idx_ip (ip),
     INDEX idx_expires (expires_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- 反爬虫统计表
+CREATE TABLE IF NOT EXISTS antibot_stats (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    reason VARCHAR(100) NOT NULL,
+    count INT UNSIGNED DEFAULT 0,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    UNIQUE KEY unique_reason (reason)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- 初始化统计数据
+INSERT INTO antibot_stats (reason, count) VALUES ('total_blocked', 0) ON DUPLICATE KEY UPDATE reason=reason;
+
+-- 反爬虫黑名单表
+CREATE TABLE IF NOT EXISTS antibot_blacklist (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    ip VARCHAR(45) NOT NULL,
+    reason VARCHAR(255) DEFAULT '',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE KEY unique_ip (ip)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- 反爬虫白名单表
+CREATE TABLE IF NOT EXISTS antibot_whitelist (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    ip VARCHAR(45) NOT NULL,
+    note VARCHAR(255) DEFAULT '',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE KEY unique_ip (ip)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- =====================================================
@@ -465,6 +532,27 @@ CREATE TABLE IF NOT EXISTS api_keys (
     INDEX idx_user (user_id),
     INDEX idx_status (status),
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- API Token表 (用于API访问)
+CREATE TABLE IF NOT EXISTS api_tokens (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    name VARCHAR(100) NOT NULL COMMENT 'Token名称',
+    token VARCHAR(64) NOT NULL COMMENT 'API Token',
+    permissions JSON COMMENT '权限配置',
+    rate_limit INT DEFAULT 100 COMMENT '每分钟限制',
+    enabled TINYINT(1) DEFAULT 1 COMMENT '是否启用',
+    note TEXT COMMENT '备注',
+    
+    last_used_at TIMESTAMP NULL,
+    call_count BIGINT DEFAULT 0,
+    expires_at TIMESTAMP NULL,
+    
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    
+    UNIQUE KEY unique_token (token),
+    INDEX idx_enabled (enabled)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- =====================================================

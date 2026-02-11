@@ -76,6 +76,28 @@ class BackupService {
     }
     
     /**
+     * 获取备份配置
+     */
+    public function getConfig(): array {
+        return $this->config;
+    }
+    
+    /**
+     * 保存备份配置
+     */
+    public function saveConfig(array $newConfig): bool {
+        // 合并配置
+        $this->config = array_merge($this->config, $newConfig);
+        
+        // 保存到数据库
+        if ($this->db) {
+            $this->db->setConfig('backup_config', $this->config);
+        }
+        
+        return true;
+    }
+    
+    /**
      * 执行完整备份
      */
     public function backup(bool $uploadToCloud = true): array {

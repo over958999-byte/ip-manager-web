@@ -17,7 +17,7 @@ class IpPoolController extends BaseController
         $this->requireLogin();
         
         $pool = $this->db->getIpPool();
-        $this->success($pool);
+        $this->success(['ip_pool' => $pool]);
     }
     
     /**
