@@ -173,58 +173,20 @@ try {
 
     // ==================== 后台任务（实时更新）====================
 
-    // 8. 收集访客信息
-    $ua = $_SERVER['HTTP_USER_AGENT'] ?? '';
-    $visitorInfo = [
-        'ip' => $clientIp,
-        'country' => '', // 稍后异步获取
-        'device_type' => $deviceType,
-        'os' => '',
-        'browser' => '',
-        'user_agent' => substr($ua, 0, 500),
-        'referer' => substr($_SERVER['HTTP_REFERER'] ?? '', 0, 500)
-    ];
+    // 8. 实时更新点击统计
+    $stmt = $pdo->prepare("UPDATE jump_rules SET total_clicks = total_clicks + 1, last_access_at = NOW() WHERE id = ?");
+    $stmt->execute([$rule['id']]);
 
-    // 解析 OS 和浏览器
-    if (stripos($ua, 'Windows') !== false) {
-        $visitorInfo['os'] = 'Windows';
-    } elseif (stripos($ua, 'Mac') !== false) {
-        $visitorInfo['os'] = 'macOS';
-    } elseif (stripos($ua, 'Linux') !== false) {
-        $visitorInfo['os'] = 'Linux';
-    } elseif (stripos($ua, 'iPhone') !== false || stripos($ua, 'iPad') !== false) {
-        $visitorInfo['os'] = 'iOS';
-    } elseif (stripos($ua, 'Android') !== false) {
-        $visitorInfo['os'] = 'Android';
+    // 9. 更新独立访客（基于IP去重，同一IP每天只计算一次）
+    $visitorKey = 'visitor:' . $rule['id'] . ':' . date('Ymd') . ':' . md5($clientIp);
+    $cacheFile = sys_get_temp_dir() . '/' . md5($visitorKey) . '.tmp';
+    
+    if (file_exists($cacheFile) === false) {
+        // 新访客，更新UV
+        @file_put_contents($cacheFile, '1');
+        $stmt = $pdo->prepare("UPDATE jump_rules SET unique_visitors = unique_visitors + 1 WHERE id = ?");
+        $stmt->execute([$rule['id']]);
     }
-
-    if (stripos($ua, 'Chrome') !== false && stripos($ua, 'Edg') === false) {
-        $visitorInfo['browser'] = 'Chrome';
-    } elseif (stripos($ua, 'Firefox') !== false) {
-        $visitorInfo['browser'] = 'Firefox';
-    } elseif (stripos($ua, 'Safari') !== false && stripos($ua, 'Chrome') === false) {
-        $visitorInfo['browser'] = 'Safari';
-    } elseif (stripos($ua, 'Edg') !== false) {
-        $visitorInfo['browser'] = 'Edge';
-    }
-
-    // 获取国家代码（快速查询）
-    $isLocalIp = (strpos($clientIp, '192.168.') === 0 || strpos($clientIp, '10.') === 0 || $clientIp === '127.0.0.1');
-    if ($isLocalIp) {
-        $visitorInfo['country'] = 'LOCAL';
-    } else {
-        $ctx = stream_context_create(['http' => ['timeout' => 1]]);
-        $resp = @file_get_contents("http://ip-api.com/json/{$clientIp}?fields=countryCode", false, $ctx);
-        if ($resp) {
-            $data = json_decode($resp, true);
-            $visitorInfo['country'] = $data['countryCode'] ?? 'UNKNOWN';
-        } else {
-            $visitorInfo['country'] = 'UNKNOWN';
-        }
-    }
-
-    // 9. 调用 JumpService 记录完整的点击统计
-    $jumpService->recordClick($rule['id'], 'code', $code, $visitorInfo);
 
 } catch (Throwable $e) {
     error_log("ShortLink Error: " . $e->getMessage());

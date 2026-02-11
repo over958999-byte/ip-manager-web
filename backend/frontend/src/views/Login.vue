@@ -107,15 +107,13 @@
 </template>
 
 <script setup>
-import { ref, reactive, onMounted, watch } from 'vue'
-import { useRouter, useRoute } from 'vue-router'
-import { useUserStore } from '@/stores/user'
+import { ref, reactive } from 'vue'
+import { useRouter } from 'vue-router'
+import { useUserStore } from '../stores/user'
 import { ElMessage } from 'element-plus'
 import { User, Lock } from '@element-plus/icons-vue'
-import { getRememberLogin, setRememberLogin, getRememberedUsername, setRememberedUsername, removeRememberedUsername } from '@/utils/auth'
 
 const router = useRouter()
-const route = useRoute()
 const userStore = useUserStore()
 const formRef = ref(null)
 const loading = ref(false)
@@ -135,26 +133,6 @@ const rules = {
   ]
 }
 
-// 获取重定向地址
-const redirect = ref('')
-
-watch(
-  () => route.query,
-  (query) => {
-    redirect.value = query.redirect || '/'
-  },
-  { immediate: true }
-)
-
-// 初始化
-onMounted(() => {
-  // 恢复记住的用户名
-  if (getRememberLogin()) {
-    form.remember = true
-    form.username = getRememberedUsername()
-  }
-})
-
 const handleLogin = async () => {
   if (!formRef.value) return
   
@@ -164,24 +142,12 @@ const handleLogin = async () => {
       try {
         const res = await userStore.login(form.username, form.password)
         if (res.success) {
-          // 处理记住我
-          if (form.remember) {
-            setRememberLogin(true)
-            setRememberedUsername(form.username)
-          } else {
-            setRememberLogin(false)
-            removeRememberedUsername()
-          }
-          
           ElMessage.success('登录成功，欢迎回来！')
-          
-          // 跳转到重定向地址或首页
-          router.push(redirect.value || '/')
+          router.push('/dashboard')
         } else {
           ElMessage.error(res.message || '用户名或密码错误')
         }
       } catch (error) {
-        console.error('Login error:', error)
         ElMessage.error('登录失败，请稍后重试')
       } finally {
         loading.value = false

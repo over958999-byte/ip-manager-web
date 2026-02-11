@@ -2,7 +2,6 @@
 /**
  * 数据库读写分离支持
  * 主从架构，写操作走主库，读操作走从库
- * 增强：强一致性读策略
  */
 
 class DatabaseCluster {
@@ -23,20 +22,10 @@ class DatabaseCluster {
             'charset' => 'utf8mb4'
         ],
         'slaves' => [],
-        'sticky' => true,           // 写后读粘性（同一请求写后读走主库）
-        'sticky_ttl' => 5,          // 粘性持续时间（秒）
-        'strong_consistency' => false, // 全局强一致性读开关
+        'sticky' => true,  // 写后读粘性（同一请求写后读走主库）
     ];
     
-    private $hasWritten = false;    // 本次请求是否有写操作
-    private $writeTimestamp = 0;    // 最后写入时间戳
-    
-    // 强一致性读的表（这些表读取时强制走主库）
-    private $strongConsistencyTables = [
-        'users',
-        'api_tokens',
-        'settings',
-    ];
+    private $hasWritten = false;  // 本次请求是否有写操作
     
     private function __construct() {
         $this->loadConfig();
@@ -70,14 +59,6 @@ class DatabaseCluster {
             $this->config['master']['password'] = getenv('DB_MASTER_PASS');
         }
         
-        // 强一致性配置
-        if (getenv('DB_STRONG_CONSISTENCY')) {
-            $this->config['strong_consistency'] = filter_var(getenv('DB_STRONG_CONSISTENCY'), FILTER_VALIDATE_BOOLEAN);
-        }
-        if (getenv('DB_STICKY_TTL')) {
-            $this->config['sticky_ttl'] = (int)getenv('DB_STICKY_TTL');
-        }
-        
         // 从环境变量加载从库配置（支持多个从库）
         $slaveIndex = 1;
         while (getenv("DB_SLAVE{$slaveIndex}_HOST")) {
@@ -101,22 +82,6 @@ class DatabaseCluster {
     }
     
     /**
-     * 设置强一致性读模式
-     */
-    public function setStrongConsistency(bool $enabled): void {
-        $this->config['strong_consistency'] = $enabled;
-    }
-    
-    /**
-     * 添加需要强一致性读的表
-     */
-    public function addStrongConsistencyTable(string $table): void {
-        if (!in_array($table, $this->strongConsistencyTables)) {
-            $this->strongConsistencyTables[] = $table;
-        }
-    }
-    
-    /**
      * 获取主库连接（写操作）
      */
     public function getMaster(): PDO {
@@ -124,26 +89,16 @@ class DatabaseCluster {
             $this->master = $this->createConnection($this->config['master']);
         }
         $this->hasWritten = true;
-        $this->writeTimestamp = microtime(true);
         return $this->master;
     }
     
     /**
      * 获取从库连接（读操作）
-     * @param bool $forceStrong 强制使用强一致性读（走主库）
      */
-    public function getSlave(bool $forceStrong = false): PDO {
-        // 全局强一致性模式
-        if ($this->config['strong_consistency'] || $forceStrong) {
-            return $this->getMaster();
-        }
-        
-        // 如果启用了粘性且本次请求有写操作（在TTL内）
+    public function getSlave(): PDO {
+        // 如果启用了粘性且本次请求有写操作，走主库
         if ($this->config['sticky'] && $this->hasWritten) {
-            $elapsed = microtime(true) - $this->writeTimestamp;
-            if ($elapsed < $this->config['sticky_ttl']) {
-                return $this->getMaster();
-            }
+            return $this->getMaster();
         }
         
         // 如果没有从库配置，走主库
@@ -161,7 +116,7 @@ class DatabaseCluster {
             } catch (Exception $e) {
                 // 从库连接失败，回退到主库
                 if (class_exists('Logger')) {
-                    Logger::getInstance()->warning('从库连接失败，回退到主库', ['error' => $e->getMessage()]);
+                    Logger::logWarning('从库连接失败，回退到主库', ['error' => $e->getMessage()]);
                 }
                 return $this->getMaster();
             }
@@ -226,15 +181,9 @@ class DatabaseCluster {
     
     /**
      * 执行读操作
-     * @param bool $forceStrong 强制使用强一致性读
      */
-    public function read(string $sql, array $params = [], bool $forceStrong = false): array {
-        // 检查SQL是否涉及强一致性表
-        if (!$forceStrong) {
-            $forceStrong = $this->isStrongConsistencyQuery($sql);
-        }
-        
-        $pdo = $this->getSlave($forceStrong);
+    public function read(string $sql, array $params = []): array {
+        $pdo = $this->getSlave();
         $stmt = $pdo->prepare($sql);
         $stmt->execute($params);
         return $stmt->fetchAll();
@@ -242,15 +191,9 @@ class DatabaseCluster {
     
     /**
      * 执行读操作（单条）
-     * @param bool $forceStrong 强制使用强一致性读
      */
-    public function readOne(string $sql, array $params = [], bool $forceStrong = false): ?array {
-        // 检查SQL是否涉及强一致性表
-        if (!$forceStrong) {
-            $forceStrong = $this->isStrongConsistencyQuery($sql);
-        }
-        
-        $pdo = $this->getSlave($forceStrong);
+    public function readOne(string $sql, array $params = []): ?array {
+        $pdo = $this->getSlave();
         $stmt = $pdo->prepare($sql);
         $stmt->execute($params);
         $result = $stmt->fetch();
@@ -265,19 +208,6 @@ class DatabaseCluster {
         $stmt = $pdo->prepare($sql);
         $stmt->execute($params);
         return $stmt->fetchColumn();
-    }
-    
-    /**
-     * 检查SQL是否涉及需要强一致性读的表
-     */
-    private function isStrongConsistencyQuery(string $sql): bool {
-        $sqlLower = strtolower($sql);
-        foreach ($this->strongConsistencyTables as $table) {
-            if (strpos($sqlLower, strtolower($table)) !== false) {
-                return true;
-            }
-        }
-        return false;
     }
     
     /**

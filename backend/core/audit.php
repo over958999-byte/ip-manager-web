@@ -2,14 +2,11 @@
 /**
  * 操作审计日志模块
  * 记录所有管理员操作
- * 增强：支持异步写入消息队列
  */
 
 class AuditLog {
     private static $instance = null;
     private $db;
-    private $queue;
-    private $asyncEnabled = false;
     
     // 操作类型
     const ACTION_LOGIN = 'login';
@@ -32,19 +29,8 @@ class AuditLog {
     const RESOURCE_API_TOKEN = 'api_token';
     const RESOURCE_ANTIBOT = 'antibot';
     
-    // 队列名称
-    const QUEUE_NAME = 'audit_logs';
-    
     private function __construct() {
         $this->db = Database::getInstance();
-        
-        // 检查是否启用异步模式
-        $this->asyncEnabled = filter_var(getenv('AUDIT_ASYNC_ENABLED') ?: false, FILTER_VALIDATE_BOOLEAN);
-        
-        // 初始化消息队列
-        if ($this->asyncEnabled && class_exists('MessageQueue')) {
-            $this->queue = MessageQueue::getInstance();
-        }
     }
     
     public static function getInstance(): self {
@@ -56,60 +42,14 @@ class AuditLog {
     
     /**
      * 记录审计日志
-     * @param bool $forceSync 强制同步写入（用于关键操作如登录）
      */
     public function log(
         string $action,
         string $resource,
         ?string $resourceId = null,
         ?array $details = null,
-        ?string $userId = null,
-        bool $forceSync = false
+        ?string $userId = null
     ): bool {
-        $logData = [
-            'user_id' => $userId ?? $this->getCurrentUserId(),
-            'action' => $action,
-            'resource' => $resource,
-            'resource_id' => $resourceId,
-            'details' => $details ? json_encode($details, JSON_UNESCAPED_UNICODE) : null,
-            'ip' => $this->getClientIp(),
-            'user_agent' => substr($_SERVER['HTTP_USER_AGENT'] ?? '', 0, 500),
-            'created_at' => date('Y-m-d H:i:s'),
-        ];
-        
-        // 添加trace_id（如果Logger可用）
-        if (class_exists('Logger')) {
-            $logData['trace_id'] = Logger::getInstance()->getTraceId();
-        }
-        
-        // 异步写入消息队列
-        if ($this->asyncEnabled && $this->queue && !$forceSync) {
-            return $this->logAsync($logData);
-        }
-        
-        // 同步写入数据库
-        return $this->logSync($logData);
-    }
-    
-    /**
-     * 异步写入消息队列
-     */
-    private function logAsync(array $logData): bool {
-        try {
-            return $this->queue->push(self::QUEUE_NAME, $logData);
-        } catch (Exception $e) {
-            // 队列写入失败，降级到同步写入
-            if (class_exists('Logger')) {
-                Logger::getInstance()->warning('审计日志队列写入失败，降级到同步', ['error' => $e->getMessage()]);
-            }
-            return $this->logSync($logData);
-        }
-    }
-    
-    /**
-     * 同步写入数据库
-     */
-    private function logSync(array $logData): bool {
         try {
             $pdo = $this->db->getPdo();
             
@@ -117,92 +57,37 @@ class AuditLog {
                 "INSERT INTO audit_logs (
                     user_id, action, resource, resource_id, 
                     details, ip, user_agent, created_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, NOW())"
             );
             
             $stmt->execute([
-                $logData['user_id'],
-                $logData['action'],
-                $logData['resource'],
-                $logData['resource_id'],
-                $logData['details'],
-                $logData['ip'],
-                $logData['user_agent'],
-                $logData['created_at']
+                $userId ?? $this->getCurrentUserId(),
+                $action,
+                $resource,
+                $resourceId,
+                $details ? json_encode($details, JSON_UNESCAPED_UNICODE) : null,
+                $this->getClientIp(),
+                substr($_SERVER['HTTP_USER_AGENT'] ?? '', 0, 500)
             ]);
             
             return true;
         } catch (Exception $e) {
             if (class_exists('Logger')) {
-                Logger::getInstance()->error('审计日志记录失败', ['error' => $e->getMessage()]);
+                Logger::logError('审计日志记录失败', ['error' => $e->getMessage()]);
             }
             return false;
         }
     }
     
     /**
-     * 批量处理队列中的审计日志（Worker调用）
-     */
-    public function processQueue(int $batchSize = 100): int {
-        if (!$this->queue) {
-            return 0;
-        }
-        
-        $messages = $this->queue->pop(self::QUEUE_NAME, $batchSize);
-        if (empty($messages)) {
-            return 0;
-        }
-        
-        $processed = 0;
-        $pdo = $this->db->getPdo();
-        
-        // 批量插入
-        $pdo->beginTransaction();
-        try {
-            $stmt = $pdo->prepare(
-                "INSERT INTO audit_logs (
-                    user_id, action, resource, resource_id, 
-                    details, ip, user_agent, created_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
-            );
-            
-            foreach ($messages as $msg) {
-                $data = $msg['data'];
-                $stmt->execute([
-                    $data['user_id'],
-                    $data['action'],
-                    $data['resource'],
-                    $data['resource_id'],
-                    $data['details'],
-                    $data['ip'],
-                    $data['user_agent'],
-                    $data['created_at']
-                ]);
-                $processed++;
-            }
-            
-            $pdo->commit();
-        } catch (Exception $e) {
-            $pdo->rollBack();
-            if (class_exists('Logger')) {
-                Logger::getInstance()->error('批量处理审计日志失败', ['error' => $e->getMessage()]);
-            }
-        }
-        
-        return $processed;
-    }
-    
-    /**
-     * 快捷方法：记录登录（强制同步）
+     * 快捷方法：记录登录
      */
     public function logLogin(bool $success, ?string $reason = null): bool {
         return $this->log(
             self::ACTION_LOGIN,
             self::RESOURCE_USER,
             null,
-            ['success' => $success, 'reason' => $reason],
-            null,
-            true // 登录操作强制同步写入
+            ['success' => $success, 'reason' => $reason]
         );
     }
     
@@ -247,16 +132,11 @@ class AuditLog {
     }
     
     /**
-     * 快捷方法：记录安全事件（强制同步）
+     * 快捷方法：记录安全事件
      */
     public function logSecurity(string $event, ?array $details = null): bool {
-        return $this->log(
-            self::ACTION_SECURITY, 
-            self::RESOURCE_USER, 
-            null, 
-            array_merge(['event' => $event], $details ?? []),
-            null,
-            true // 安全事件强制同步写入
+        return $this->log(self::ACTION_SECURITY, self::RESOURCE_USER, null, 
+            array_merge(['event' => $event], $details ?? [])
         );
     }
     

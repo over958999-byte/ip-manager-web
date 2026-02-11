@@ -353,14 +353,10 @@ const loadTokens = async () => {
   loading.value = true
   try {
     const res = await api.request({ action: 'api_token_list' })
-    console.log('api_token_list response:', res)
     if (res.success) {
-      tokens.value = res.data || []
-    } else {
-      ElMessage.error(res.message || '加载失败')
+      tokens.value = res.data
     }
   } catch (e) {
-    console.error('loadTokens error:', e)
     ElMessage.error('加载失败')
   }
   loading.value = false
@@ -382,8 +378,6 @@ const editToken = (row) => {
 }
 
 const saveToken = async () => {
-  console.log('saveToken called, tokenForm:', tokenForm)
-  
   if (!tokenForm.name) {
     ElMessage.warning('请输入Token名称')
     return
@@ -391,32 +385,25 @@ const saveToken = async () => {
 
   try {
     if (editingToken.value) {
-      console.log('updating token...')
-      const res = await api.request({
+      await api.request({
         action: 'api_token_update',
         id: editingToken.value.id,
         ...tokenForm
       })
-      console.log('update response:', res)
       ElMessage.success('更新成功')
     } else {
-      console.log('creating token...')
       const res = await api.request({
         action: 'api_token_create',
         ...tokenForm
       })
-      console.log('create response:', res)
       if (res.success) {
         newTokenValue.value = res.data.token
         newTokenDialogVisible.value = true
-      } else {
-        ElMessage.error(res.message || '创建失败')
       }
     }
     tokenDialogVisible.value = false
     loadTokens()
   } catch (e) {
-    console.error('saveToken error:', e)
     ElMessage.error('操作失败')
   }
 }

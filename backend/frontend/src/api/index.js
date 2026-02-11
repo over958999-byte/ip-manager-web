@@ -1,7 +1,5 @@
 import axios from 'axios'
 import { ElMessage } from 'element-plus'
-import { getToken, removeToken } from '@/utils/auth'
-import router from '@/router'
 
 // ==================== 请求配置 ====================
 
@@ -66,12 +64,6 @@ request.interceptors.request.use(
       addPendingRequest(config)
     }
     
-    // 添加 Token 认证
-    const token = getToken()
-    if (token) {
-      config.headers['Authorization'] = `Bearer ${token}`
-    }
-    
     // 添加 CSRF Token（如果启用）
     const csrfToken = localStorage.getItem('csrf_token')
     if (csrfToken) {
@@ -103,23 +95,6 @@ request.interceptors.response.use(
     // 请求被取消
     if (axios.isCancel(error)) {
       console.log('请求已取消:', config?.url)
-      return Promise.reject(error)
-    }
-    
-    // 处理401未授权
-    if (error.response?.status === 401) {
-      removeToken()
-      // 避免重复跳转
-      if (router.currentRoute.value.path !== '/login') {
-        ElMessage.error('登录已过期，请重新登录')
-        router.push(`/login?redirect=${router.currentRoute.value.fullPath}`)
-      }
-      return Promise.reject(error)
-    }
-    
-    // 处理403权限不足
-    if (error.response?.status === 403) {
-      ElMessage.error('权限不足，无法执行此操作')
       return Promise.reject(error)
     }
     
@@ -240,17 +215,13 @@ export const checkAllDomains = () => request.get('?action=domain_check_all')
 // ==================== 旧版兼容 API ====================
 
 const api = {
-  // 通用请求方法 - 支持在body中传入action
-  request: (data) => {
-    const { action, ...rest } = data
-    return request.post(`?action=${action}`, rest)
-  },
+  // 通用请求方法
+  request: (data) => request.post('', data),
   
   // 登录相关
-  login: (username, password, totpCode = '') => request.post('?action=login', { username, password, totp_code: totpCode }),
+  login: (username, password) => request.post('?action=login', { username, password }),
   logout: () => request.post('?action=logout'),
   checkLogin: () => request.get('?action=check_login'),
-  getUserInfo: () => request.get('?action=get_user_info'),
   
   // IP跳转管理（兼容旧版）
   getRedirects: () => request.get('?action=get_redirects'),
@@ -312,7 +283,10 @@ const api = {
   domainSafetyStats: () => request.get('?action=domain_safety_stats'),
   domainSafetyLogs: (limit = 100) => request.get('?action=domain_safety_logs', { params: { limit } }),
   domainSafetyConfig: () => request.get('?action=domain_safety_config'),
-  domainSafetySaveConfig: (config) => request.post('?action=domain_safety_config', { config })
+  domainSafetySaveConfig: (config) => request.post('?action=domain_safety_config', { config }),
+  
+  // 通用请求方法
+  request: (action, data = {}) => request.post(`?action=${action}`, data)
 }
 
 // 导出 getAntibotStats 供 Dashboard 使用

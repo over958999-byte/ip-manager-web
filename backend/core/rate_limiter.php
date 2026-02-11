@@ -2,7 +2,6 @@
 /**
  * 分布式限流服务
  * 支持：令牌桶、滑动窗口、漏桶算法
- * 增强：管理端/跳转端分离、按用户/API Key细粒度限流
  */
 
 class RateLimiter {
@@ -17,70 +16,27 @@ class RateLimiter {
     // 内存计数器（进程级）
     private $counters = [];
     
-    // Redis连接（可选）
-    private $redis = null;
-    
     private function __construct() {
         $this->dataDir = sys_get_temp_dir() . '/ip_manager_ratelimit';
         if (!is_dir($this->dataDir)) {
             @mkdir($this->dataDir, 0755, true);
         }
         
-        // 初始化Redis
-        $this->initRedis();
-        
-        // 默认规则（分离管理端与跳转端）
+        // 默认规则
         $this->rules = [
-            // ===== 跳转端规则（高吞吐） =====
+            'default' => [
+                'rate' => 100,          // 每秒100请求
+                'burst' => 200,         // 突发200
+                'window' => 1,          // 1秒窗口
+            ],
             'shortlink' => [
                 'rate' => 1000,         // 每秒1000请求
                 'burst' => 2000,        // 突发2000
                 'window' => 1,
             ],
-            'shortlink_ip' => [
-                'rate' => 50,           // 每IP每秒50请求
-                'burst' => 100,
-                'window' => 1,
-            ],
-            
-            // ===== 管理端规则（更严格） =====
-            'admin' => [
-                'rate' => 100,          // 每秒100请求
-                'burst' => 200,
-                'window' => 1,
-            ],
-            'admin_ip' => [
-                'rate' => 30,           // 每IP每秒30请求
-                'burst' => 60,
-                'window' => 1,
-            ],
-            'admin_user' => [
-                'rate' => 60,           // 每用户每秒60请求
-                'burst' => 120,
-                'window' => 1,
-            ],
-            
-            // ===== API规则（按Key限流） =====
             'api' => [
                 'rate' => 50,           // 每秒50请求
                 'burst' => 100,
-                'window' => 1,
-            ],
-            'api_key' => [
-                'rate' => 100,          // 每API Key每秒100请求
-                'burst' => 200,
-                'window' => 1,
-            ],
-            'api_key_premium' => [
-                'rate' => 500,          // 高级API Key每秒500请求
-                'burst' => 1000,
-                'window' => 1,
-            ],
-            
-            // ===== 通用规则 =====
-            'default' => [
-                'rate' => 100,          // 每秒100请求
-                'burst' => 200,
                 'window' => 1,
             ],
             'ip' => [
@@ -88,49 +44,7 @@ class RateLimiter {
                 'burst' => 60,
                 'window' => 1,
             ],
-            
-            // ===== 登录保护 =====
-            'login' => [
-                'rate' => 5,            // 每秒5次登录尝试
-                'burst' => 10,
-                'window' => 60,         // 60秒窗口
-            ],
-            'login_ip' => [
-                'rate' => 10,           // 每IP每分钟10次
-                'burst' => 15,
-                'window' => 60,
-            ],
         ];
-    }
-    
-    /**
-     * 初始化Redis连接
-     */
-    private function initRedis(): void {
-        if (!class_exists('Redis')) {
-            return;
-        }
-        
-        $redisHost = getenv('REDIS_HOST');
-        if (!$redisHost) {
-            return;
-        }
-        
-        try {
-            $this->redis = new Redis();
-            $this->redis->connect(
-                $redisHost,
-                (int)(getenv('REDIS_PORT') ?: 6379),
-                2.0
-            );
-            
-            $redisPass = getenv('REDIS_PASSWORD');
-            if ($redisPass) {
-                $this->redis->auth($redisPass);
-            }
-        } catch (Exception $e) {
-            $this->redis = null;
-        }
     }
     
     public static function getInstance(): self {
@@ -152,87 +66,6 @@ class RateLimiter {
     }
     
     /**
-     * 检查短链跳转限流（高性能）
-     */
-    public function checkShortlink(string $ip): array {
-        // 全局限流
-        $global = $this->tokenBucket('global', 'shortlink');
-        if (!$global['allowed']) {
-            return $global;
-        }
-        
-        // IP限流
-        return $this->tokenBucket($ip, 'shortlink_ip');
-    }
-    
-    /**
-     * 检查管理端限流
-     */
-    public function checkAdmin(string $ip, ?string $userId = null): array {
-        // 全局限流
-        $global = $this->tokenBucket('global', 'admin');
-        if (!$global['allowed']) {
-            return $global;
-        }
-        
-        // IP限流
-        $ipResult = $this->tokenBucket($ip, 'admin_ip');
-        if (!$ipResult['allowed']) {
-            return $ipResult;
-        }
-        
-        // 用户限流（如果有用户ID）
-        if ($userId) {
-            return $this->tokenBucket($userId, 'admin_user');
-        }
-        
-        return $ipResult;
-    }
-    
-    /**
-     * 检查API限流（按API Key）
-     */
-    public function checkApi(string $ip, ?string $apiKey = null, bool $isPremium = false): array {
-        // 全局限流
-        $global = $this->tokenBucket('global', 'api');
-        if (!$global['allowed']) {
-            return $global;
-        }
-        
-        // IP限流
-        $ipResult = $this->tokenBucket($ip, 'ip');
-        if (!$ipResult['allowed']) {
-            return $ipResult;
-        }
-        
-        // API Key限流
-        if ($apiKey) {
-            $ruleName = $isPremium ? 'api_key_premium' : 'api_key';
-            return $this->tokenBucket($apiKey, $ruleName);
-        }
-        
-        return $ipResult;
-    }
-    
-    /**
-     * 检查登录限流
-     */
-    public function checkLogin(string $ip, ?string $username = null): array {
-        // IP限流
-        $ipResult = $this->slidingWindow($ip, 'login_ip');
-        if (!$ipResult['allowed']) {
-            return $ipResult;
-        }
-        
-        // 用户名限流（如果有）
-        if ($username) {
-            return $this->slidingWindow($username, 'login');
-        }
-        
-        return $ipResult;
-    }
-    
-    /**
      * 令牌桶限流
      * @param string $key 限流键
      * @param string $ruleName 规则名称
@@ -241,11 +74,6 @@ class RateLimiter {
     public function tokenBucket(string $key, string $ruleName = 'default'): array {
         $rule = $this->rules[$ruleName] ?? $this->rules['default'];
         $bucketKey = "token:{$ruleName}:{$key}";
-        
-        // 使用Redis（如果可用）
-        if ($this->redis) {
-            return $this->tokenBucketRedis($bucketKey, $rule);
-        }
         
         $now = microtime(true);
         $bucket = $this->getBucket($bucketKey);
@@ -284,51 +112,6 @@ class RateLimiter {
             'remaining' => 0,
             'reset' => $resetTime,
         ];
-    }
-    
-    /**
-     * Redis令牌桶实现（分布式）
-     */
-    private function tokenBucketRedis(string $key, array $rule): array {
-        $now = microtime(true);
-        $redisKey = "ratelimit:{$key}";
-        
-        // Lua脚本实现原子操作
-        $script = <<<LUA
-local key = KEYS[1]
-local rate = tonumber(ARGV[1])
-local burst = tonumber(ARGV[2])
-local now = tonumber(ARGV[3])
-
-local data = redis.call('HMGET', key, 'tokens', 'last_time')
-local tokens = tonumber(data[1]) or burst
-local last_time = tonumber(data[2]) or now
-
--- 计算新令牌
-local elapsed = now - last_time
-local new_tokens = math.min(burst, tokens + elapsed * rate)
-
-if new_tokens >= 1 then
-    new_tokens = new_tokens - 1
-    redis.call('HMSET', key, 'tokens', new_tokens, 'last_time', now)
-    redis.call('EXPIRE', key, 60)
-    return {1, math.floor(new_tokens)}
-else
-    return {0, 0}
-end
-LUA;
-        
-        try {
-            $result = $this->redis->eval($script, [$redisKey, $rule['rate'], $rule['burst'], $now], 1);
-            return [
-                'allowed' => (bool)$result[0],
-                'remaining' => (int)$result[1],
-                'reset' => 1,
-            ];
-        } catch (Exception $e) {
-            // Redis失败，降级到内存
-            return $this->tokenBucket(str_replace('ratelimit:', '', $key), 'default');
-        }
     }
     
     /**
@@ -456,6 +239,13 @@ LUA;
      */
     public function checkIp(string $ip): array {
         return $this->tokenBucket($ip, 'ip');
+    }
+    
+    /**
+     * 短链限流快捷方法
+     */
+    public function checkShortlink(string $code): array {
+        return $this->fixedWindow($code, 'shortlink');
     }
     
     /**
