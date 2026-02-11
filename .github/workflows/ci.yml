@@ -295,12 +295,8 @@ jobs:
   deploy-staging:
     name: Deploy to Staging
     runs-on: ubuntu-latest
-    # 只依赖 frontend 构建成功，不依赖 docker-build
     needs: frontend
     if: github.event_name == 'push' && (github.ref == 'refs/heads/develop' || github.ref == 'refs/heads/master' || github.ref == 'refs/heads/main')
-    environment:
-      name: staging
-      url: http://43.157.159.31
     
     steps:
       - name: Checkout code
@@ -312,42 +308,37 @@ jobs:
           name: frontend-dist
           path: dist
           
-      - name: Deploy to staging server
+      - name: Prepare server for deployment
         uses: appleboy/ssh-action@v1.0.3
         with:
-          host: ${{ secrets.STAGING_HOST }}
-          username: ${{ secrets.STAGING_USER }}
+          host: 43.157.159.31
+          username: ubuntu
           key: ${{ secrets.STAGING_SSH_KEY }}
           timeout: 60s
           command_timeout: 10m
-          debug: true
           script: |
             set -e
-            echo "🚀 开始部署..."
-            echo "当前用户: $(whoami)"
-            echo "当前目录: $(pwd)"
-            
-            # 部署目录（与 install.sh 保持一致）
+            echo "🚀 准备部署环境..."
             INSTALL_DIR="/var/www/ip-manager"
             
-            # 检查项目是否已通过 install.sh 部署
+            # 修复所有权限，让当前用户可以操作
+            echo "🔧 修复目录权限..."
+            sudo chown -R $(whoami):$(whoami) "$INSTALL_DIR"
+            
+            # 删除旧的 dist 目录（避免 SCP 覆盖权限问题）
+            echo "🗑️ 清理旧的前端文件..."
+            rm -rf "$INSTALL_DIR/dist"
+            
+            # 拉取最新代码
             if [ -d "$INSTALL_DIR/.git" ]; then
-              echo "📦 检测到已有项目，执行更新..."
-              
-              # 先修复权限，让当前用户可以操作
-              echo "🔧 修复 Git 目录权限..."
-              sudo chown -R $(whoami):$(whoami) "$INSTALL_DIR"
-              
+              echo "📥 拉取最新代码..."
               cd "$INSTALL_DIR"
               
-              # 保存本地配置
+              # 备份配置
               if [ -f "backend/core/db_config.php" ]; then
                 cp backend/core/db_config.php /tmp/db_config.php.bak
-                echo "✅ 已备份数据库配置"
               fi
               
-              # 拉取最新代码
-              echo "📥 拉取最新代码..."
               git fetch origin
               git reset --hard origin/master
               echo "✅ 代码已更新到: $(git rev-parse --short HEAD)"
@@ -355,26 +346,12 @@ jobs:
               # 恢复配置
               if [ -f "/tmp/db_config.php.bak" ]; then
                 cp /tmp/db_config.php.bak backend/core/db_config.php
-                echo "✅ 已恢复数据库配置"
               fi
-              
-              # 设置权限给 www-data（Web 服务器需要）
-              echo "🔒 设置文件权限..."
-              sudo chown -R www-data:www-data "$INSTALL_DIR"
-              sudo chmod -R 755 "$INSTALL_DIR"
-              sudo chmod -R 777 "$INSTALL_DIR/logs" 2>/dev/null || true
-              
-              # 重载服务
-              echo "🔄 重载服务..."
-              sudo systemctl reload php8.2-fpm 2>/dev/null || sudo systemctl reload php-fpm 2>/dev/null || true
-              sudo systemctl reload nginx 2>/dev/null || true
-              
-              echo "✅ 部署完成: $(date)"
             else
-              echo "⚠️ 项目未初始化，请先运行 install.sh 进行首次部署"
-              echo "   curl -fsSL https://raw.githubusercontent.com/over958999-byte/ip-manager-web/master/deploy/install.sh | sudo bash"
+              echo "⚠️ 项目未初始化"
               exit 1
             fi
+            echo "✅ 服务器准备完成"
             
       - name: Upload frontend dist to server
         uses: appleboy/scp-action@v0.1.7
@@ -386,15 +363,28 @@ jobs:
           target: "/var/www/ip-manager/"
           strip_components: 0
           
-      - name: Set frontend permissions
+      - name: Finalize deployment
         uses: appleboy/ssh-action@v1.0.3
         with:
           host: 43.157.159.31
           username: ubuntu
           key: ${{ secrets.STAGING_SSH_KEY }}
           script: |
-            sudo chown -R www-data:www-data /var/www/ip-manager/dist
-            echo "✅ 前端文件已部署"
+            set -e
+            INSTALL_DIR="/var/www/ip-manager"
+            
+            # 设置权限给 www-data
+            echo "🔒 设置文件权限..."
+            sudo chown -R www-data:www-data "$INSTALL_DIR"
+            sudo chmod -R 755 "$INSTALL_DIR"
+            sudo chmod -R 777 "$INSTALL_DIR/logs" 2>/dev/null || true
+            
+            # 重载服务
+            echo "🔄 重载服务..."
+            sudo systemctl reload php8.2-fpm 2>/dev/null || sudo systemctl reload php-fpm 2>/dev/null || true
+            sudo systemctl reload nginx 2>/dev/null || true
+            
+            echo "✅ 部署完成: $(date)"
 
   # ============================================
   # 部署到生产环境（需手动批准）
