@@ -311,7 +311,11 @@ const loadData = async () => {
     // 获取跳转规则列表
     const jumpRes = await api.getJumpRules({ page: 1, page_size: 10 })
     if (jumpRes.success) {
-      const rules = jumpRes.data || []
+      // 确保 rules 是数组
+      let rules = jumpRes.data?.items || jumpRes.data || []
+      if (!Array.isArray(rules)) {
+        rules = []
+      }
       recentShortLinks.value = rules.filter(r => r.rule_type === 'code').slice(0, 6)
       recentIpRules.value = rules.filter(r => r.rule_type === 'ip').slice(0, 6)
     }

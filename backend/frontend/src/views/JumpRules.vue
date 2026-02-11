@@ -486,8 +486,10 @@ async function loadData() {
       page_size: pagination.pageSize
     })
     if (res.success) {
-      rules.value = res.data || []
-      pagination.total = res.total || 0
+      // 后端 paginate 返回的数据结构: { items: [...], total: ..., page: ..., limit: ..., pages: ... }
+      const data = res.data || {}
+      rules.value = Array.isArray(data) ? data : (data.items || [])
+      pagination.total = data.total ?? res.total ?? 0
     }
   } catch (e) {
     console.error(e)

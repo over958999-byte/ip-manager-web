@@ -9,14 +9,6 @@ require_once __DIR__ . '/../../core/webhook.php';
 
 class WebhookController extends BaseController
 {
-    private Webhook $webhook;
-    
-    public function __construct()
-    {
-        parent::__construct();
-        $this->webhook = new Webhook($this->db);
-    }
-    
     /**
      * 获取 Webhook 列表
      */
@@ -133,7 +125,7 @@ class WebhookController extends BaseController
             'data' => ['message' => '这是一条测试消息']
         ];
         
-        $result = $this->webhook->send($webhook['url'], $testPayload, $webhook['secret']);
+        $result = $this->sendWebhookRequest($webhook['url'], $testPayload, $webhook['secret'] ?? '');
         
         $this->audit('webhook_test', 'webhook', $id, ['success' => $result['success']]);
         
@@ -142,6 +134,47 @@ class WebhookController extends BaseController
         } else {
             $this->error('Webhook 测试失败: ' . $result['error']);
         }
+    }
+    
+    /**
+     * 发送 Webhook 请求
+     */
+    private function sendWebhookRequest(string $url, array $payload, string $secret = ''): array
+    {
+        $jsonPayload = json_encode($payload, JSON_UNESCAPED_UNICODE);
+        
+        $headers = ['Content-Type: application/json'];
+        if ($secret) {
+            $signature = hash_hmac('sha256', $jsonPayload, $secret);
+            $headers[] = 'X-Webhook-Signature: ' . $signature;
+        }
+        
+        $ch = curl_init($url);
+        curl_setopt_array($ch, [
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_POST => true,
+            CURLOPT_POSTFIELDS => $jsonPayload,
+            CURLOPT_HTTPHEADER => $headers,
+            CURLOPT_TIMEOUT => 10,
+            CURLOPT_CONNECTTIMEOUT => 5
+        ]);
+        
+        $response = curl_exec($ch);
+        $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        $error = curl_error($ch);
+        curl_close($ch);
+        
+        if ($error) {
+            return ['success' => false, 'error' => $error, 'response' => null];
+        }
+        
+        $success = $httpCode >= 200 && $httpCode < 300;
+        return [
+            'success' => $success,
+            'response' => $response,
+            'http_code' => $httpCode,
+            'error' => $success ? null : "HTTP {$httpCode}"
+        ];
     }
     
     /**

@@ -8,12 +8,12 @@ require_once __DIR__ . '/../../core/backup.php';
 
 class BackupController extends BaseController
 {
-    private Backup $backup;
-    
-    public function __construct()
+    /**
+     * 获取 BackupService 实例
+     */
+    private function getBackupService(): BackupService
     {
-        parent::__construct();
-        $this->backup = new Backup($this->db);
+        return BackupService::getInstance();
     }
     
     /**
@@ -23,7 +23,7 @@ class BackupController extends BaseController
     {
         $this->requireLogin();
         
-        $backups = $this->backup->list();
+        $backups = $this->getBackupService()->getBackupList();
         $this->success($backups);
     }
     
@@ -37,10 +37,14 @@ class BackupController extends BaseController
         $uploadToCloud = $this->param('upload_to_cloud', true);
         
         try {
-            $result = $this->backup->create($uploadToCloud);
+            $result = $this->getBackupService()->backup($uploadToCloud);
             
-            $this->audit('backup_create', 'backup', null, ['filename' => $result['filename']]);
-            $this->success($result, '备份创建成功');
+            if ($result['success']) {
+                $this->audit('backup_create', 'backup', null, ['filename' => $result['filename'] ?? '']);
+                $this->success($result, '备份创建成功');
+            } else {
+                $this->error('备份创建失败: ' . ($result['error'] ?? '未知错误'));
+            }
         } catch (Exception $e) {
             $this->error('备份创建失败: ' . $e->getMessage());
         }
@@ -56,10 +60,14 @@ class BackupController extends BaseController
         $filename = $this->requiredParam('filename', '备份文件名不能为空');
         
         try {
-            $this->backup->restore($filename);
+            $result = $this->getBackupService()->restore($filename);
             
-            $this->audit('backup_restore', 'backup', null, ['filename' => $filename]);
-            $this->success(null, '备份恢复成功');
+            if ($result['success']) {
+                $this->audit('backup_restore', 'backup', null, ['filename' => $filename]);
+                $this->success(null, '备份恢复成功');
+            } else {
+                $this->error('备份恢复失败: ' . ($result['error'] ?? '未知错误'));
+            }
         } catch (Exception $e) {
             $this->error('备份恢复失败: ' . $e->getMessage());
         }
@@ -76,16 +84,24 @@ class BackupController extends BaseController
         
         // 安全检查：防止路径遍历
         $filename = basename($filename);
-        $backupDir = $this->backup->getBackupDir();
-        $filepath = $backupDir . '/' . $filename;
+        $backups = $this->getBackupService()->getBackupList();
         
-        if (!file_exists($filepath)) {
+        // 查找文件路径
+        $filepath = null;
+        foreach ($backups as $backup) {
+            if ($backup['filename'] === $filename) {
+                $filepath = $backup['filepath'];
+                break;
+            }
+        }
+        
+        if (!$filepath || !file_exists($filepath)) {
             $this->error('备份文件不存在');
         }
         
         // 检查文件扩展名
         $ext = pathinfo($filename, PATHINFO_EXTENSION);
-        if (!in_array($ext, ['sql', 'zip', 'gz'])) {
+        if (!in_array($ext, ['sql', 'gz', 'enc'])) {
             $this->error('不支持的文件类型');
         }
         
@@ -106,9 +122,25 @@ class BackupController extends BaseController
         
         $filename = $this->requiredParam('filename', '备份文件名不能为空');
         
+        // 安全检查：防止路径遍历
+        $filename = basename($filename);
+        $backups = $this->getBackupService()->getBackupList();
+        
+        // 查找文件路径
+        $filepath = null;
+        foreach ($backups as $backup) {
+            if ($backup['filename'] === $filename) {
+                $filepath = $backup['filepath'];
+                break;
+            }
+        }
+        
+        if (!$filepath || !file_exists($filepath)) {
+            $this->error('备份文件不存在');
+        }
+        
         try {
-            $this->backup->delete($filename);
-            
+            unlink($filepath);
             $this->audit('backup_delete', 'backup', null, ['filename' => $filename]);
             $this->success(null, '备份删除成功');
         } catch (Exception $e) {

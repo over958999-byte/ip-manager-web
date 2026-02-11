@@ -220,6 +220,9 @@ let logsTimer = null
 
 // 格式化数字
 const formatNumber = (num) => {
+  if (num === undefined || num === null) {
+    return '0'
+  }
   if (num >= 1000000) {
     return (num / 1000000).toFixed(1) + 'M'
   } else if (num >= 1000) {
@@ -413,7 +416,15 @@ const loadStats = async () => {
   try {
     const res = await getDashboardStats()
     if (res.data) {
-      stats.value = res.data
+      // 使用合并方式更新，保留默认值
+      stats.value = {
+        todayClicks: res.data.todayClicks ?? 0,
+        totalClicks: res.data.totalClicks ?? 0,
+        activeRules: res.data.activeRules ?? 0,
+        activeDomains: res.data.activeDomains ?? 0,
+        todayTrend: res.data.todayTrend ?? 0,
+        weekTrend: res.data.weekTrend ?? 0
+      }
       
       // 更新设备分布图
       if (deviceChart && res.data.deviceStats) {

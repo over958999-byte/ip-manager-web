@@ -8,12 +8,19 @@ require_once __DIR__ . '/../../core/namemart.php';
 
 class NamemartController extends BaseController
 {
-    private Namemart $namemart;
+    private ?NamemartService $namemart = null;
     
-    public function __construct()
+    /**
+     * 获取 Namemart 服务实例（延迟初始化）
+     */
+    private function getNamemart(): NamemartService
     {
-        parent::__construct();
-        $this->namemart = new Namemart($this->db);
+        if ($this->namemart === null) {
+            $memberId = $this->db->getConfig('namemart_api_key', '');
+            $apiKey = $this->db->getConfig('namemart_api_secret', '');
+            $this->namemart = new NamemartService($memberId, $apiKey);
+        }
+        return $this->namemart;
     }
     
     /**
@@ -82,7 +89,7 @@ class NamemartController extends BaseController
         }
         
         try {
-            $result = $this->namemart->checkDomains($domains);
+            $result = $this->getNamemart()->checkDomains($domains);
             $this->success($result);
         } catch (Exception $e) {
             $this->error('检查失败: ' . $e->getMessage());
@@ -105,7 +112,7 @@ class NamemartController extends BaseController
         }
         
         try {
-            $result = $this->namemart->registerDomains($domains, $contactId, $years);
+            $result = $this->getNamemart()->registerDomains($domains, $contactId, $years);
             
             $this->audit('namemart_register', 'namemart', null, ['domains' => $domains]);
             $this->success($result, '注册任务已提交');
@@ -124,7 +131,7 @@ class NamemartController extends BaseController
         $taskNo = $this->requiredParam('taskNo', '任务号不能为空');
         
         try {
-            $result = $this->namemart->getTaskStatus($taskNo);
+            $result = $this->getNamemart()->getTaskStatus($taskNo);
             $this->success($result);
         } catch (Exception $e) {
             $this->error('查询失败: ' . $e->getMessage());
@@ -141,7 +148,7 @@ class NamemartController extends BaseController
         $domain = $this->requiredParam('domain', '域名不能为空');
         
         try {
-            $result = $this->namemart->getDomainInfo($domain);
+            $result = $this->getNamemart()->getDomainInfo($domain);
             $this->success($result);
         } catch (Exception $e) {
             $this->error('查询失败: ' . $e->getMessage());
@@ -160,7 +167,7 @@ class NamemartController extends BaseController
         $dns2 = $this->param('dns2', '');
         
         try {
-            $result = $this->namemart->updateDns($domain, $dns1, $dns2);
+            $result = $this->getNamemart()->updateDns($domain, $dns1, $dns2);
             
             $this->audit('namemart_update_dns', 'namemart', null, ['domain' => $domain]);
             $this->success($result, 'DNS 更新成功');
@@ -189,7 +196,7 @@ class NamemartController extends BaseController
         ];
         
         try {
-            $result = $this->namemart->createContact($data);
+            $result = $this->getNamemart()->createContact($data);
             
             $this->audit('namemart_create_contact', 'namemart', null, ['email' => $data['email']]);
             $this->success($result, '联系人创建成功');
@@ -208,7 +215,7 @@ class NamemartController extends BaseController
         $contactId = $this->requiredParam('contactId', '联系人 ID 不能为空');
         
         try {
-            $result = $this->namemart->getContactInfo($contactId);
+            $result = $this->getNamemart()->getContactInfo($contactId);
             $this->success($result);
         } catch (Exception $e) {
             $this->error('查询失败: ' . $e->getMessage());

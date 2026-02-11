@@ -250,6 +250,17 @@ const api = {
   checkUpdate: () => request.get('?action=system_check_update'),
   doUpdate: () => request.post('?action=system_update'),
   getSystemInfo: () => request.get('?action=system_info'),
+  
+  // IP 池管理
+  getIpPool: () => request.get('?action=get_ip_pool'),
+  addToPool: (ips) => request.post('?action=add_to_pool', { ips }),
+  removeFromPool: (ip) => request.delete('?action=remove_from_pool', { data: { ip } }),
+  clearPool: () => request.delete('?action=clear_pool'),
+  activateFromPool: (ips, url, note) => request.post('?action=activate_from_pool', { ips, url, note }),
+  returnToPool: (ip) => request.post('?action=return_to_pool', { ip }),
+  
+  // Antibot 统计
+  getAntibotStats: () => request.get('?action=get_antibot_stats'),
 }
 
 // 导出 getAntibotStats 供 Dashboard 使用
