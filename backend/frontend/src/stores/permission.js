@@ -34,7 +34,7 @@ function filterAsyncRoutes(routes, roles) {
   return res
 }
 
-const usePermissionStore = defineStore('permission', {
+export const usePermissionStore = defineStore('permission', {
   state: () => ({
     // 完整路由
     routes: [],

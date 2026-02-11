@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
 
-const useTagsViewStore = defineStore('tagsView', {
+export const useTagsViewStore = defineStore('tagsView', {
   state: () => ({
     // 已访问的视图
     visitedViews: [],

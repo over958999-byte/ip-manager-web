@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
 
-const useSettingsStore = defineStore('settings', {
+export const useSettingsStore = defineStore('settings', {
   state: () => ({
     // 主题
     theme: '#409eff',
