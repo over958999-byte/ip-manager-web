@@ -238,9 +238,9 @@ class Logger {
     /**
      * 记录安全事件
      */
-    public function logSecurityEvent(string $event, array $context = []): void {
-        $this->warning('安全事件: ' . $event, array_merge($context, [
-            'ip' => $this->getClientIp(),
+    public static function logSecurityEvent(string $event, array $context = []): void {
+        self::getInstance()->warning('安全事件: ' . $event, array_merge($context, [
+            'ip' => self::getInstance()->getClientIp(),
             'ua' => $_SERVER['HTTP_USER_AGENT'] ?? '',
         ]));
     }
