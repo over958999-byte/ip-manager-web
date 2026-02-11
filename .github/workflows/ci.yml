@@ -303,14 +303,29 @@ jobs:
       url: http://43.157.159.31
     
     steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        
+      - name: Download frontend artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: frontend-dist
+          path: dist
+          
       - name: Deploy to staging server
         uses: appleboy/ssh-action@v1.0.3
         with:
           host: ${{ secrets.STAGING_HOST }}
           username: ${{ secrets.STAGING_USER }}
           key: ${{ secrets.STAGING_SSH_KEY }}
+          timeout: 60s
+          command_timeout: 10m
+          debug: true
           script: |
             set -e
+            echo "🚀 开始部署..."
+            echo "当前用户: $(whoami)"
+            echo "当前目录: $(pwd)"
             
             # 部署目录（与 install.sh 保持一致）
             INSTALL_DIR="/var/www/ip-manager"
@@ -323,33 +338,30 @@ jobs:
               # 保存本地配置
               if [ -f "backend/core/db_config.php" ]; then
                 cp backend/core/db_config.php /tmp/db_config.php.bak
+                echo "✅ 已备份数据库配置"
               fi
               
               # 拉取最新代码
+              echo "📥 拉取最新代码..."
               git fetch origin
               git reset --hard origin/master
+              echo "✅ 代码已更新到: $(git rev-parse --short HEAD)"
               
               # 恢复配置
               if [ -f "/tmp/db_config.php.bak" ]; then
                 cp /tmp/db_config.php.bak backend/core/db_config.php
-              fi
-              
-              # 重新构建前端
-              if [ -d "backend/frontend" ] && [ -f "backend/frontend/package.json" ]; then
-                echo "🔨 重新构建前端..."
-                cd backend/frontend
-                npm install --legacy-peer-deps 2>/dev/null || npm install
-                npm run build
-                cd "$INSTALL_DIR"
+                echo "✅ 已恢复数据库配置"
               fi
               
               # 设置权限
-              sudo chown -R www-data:www-data "$INSTALL_DIR"
-              sudo chmod -R 755 "$INSTALL_DIR"
+              echo "🔒 设置文件权限..."
+              sudo chown -R www-data:www-data "$INSTALL_DIR" || true
+              sudo chmod -R 755 "$INSTALL_DIR" || true
               sudo chmod -R 777 "$INSTALL_DIR/logs" 2>/dev/null || true
               
-              # 重载 PHP-FPM 和 Nginx
-              sudo systemctl reload php*-fpm 2>/dev/null || true
+              # 重载服务
+              echo "🔄 重载服务..."
+              sudo systemctl reload php8.2-fpm 2>/dev/null || sudo systemctl reload php-fpm 2>/dev/null || true
               sudo systemctl reload nginx 2>/dev/null || true
               
               echo "✅ 部署完成: $(date)"
@@ -358,6 +370,26 @@ jobs:
               echo "   curl -fsSL https://raw.githubusercontent.com/over958999-byte/ip-manager-web/master/deploy/install.sh | sudo bash"
               exit 1
             fi
+            
+      - name: Upload frontend dist to server
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.STAGING_HOST }}
+          username: ${{ secrets.STAGING_USER }}
+          key: ${{ secrets.STAGING_SSH_KEY }}
+          source: "dist/*"
+          target: "/var/www/ip-manager/"
+          strip_components: 0
+          
+      - name: Set frontend permissions
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.STAGING_HOST }}
+          username: ${{ secrets.STAGING_USER }}
+          key: ${{ secrets.STAGING_SSH_KEY }}
+          script: |
+            sudo chown -R www-data:www-data /var/www/ip-manager/dist
+            echo "✅ 前端文件已部署"
 
   # ============================================
   # 部署到生产环境（需手动批准）
