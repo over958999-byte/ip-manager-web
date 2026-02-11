@@ -2906,7 +2906,7 @@ switch ($action) {
             exit;
         }
         
-        $stmt = $db->query("SELECT id, name, token, permissions, rate_limit, enabled, last_used_at, call_count, created_at, expires_at, note FROM api_tokens ORDER BY id DESC");
+        $stmt = $db->getPdo()->query("SELECT id, name, token, permissions, rate_limit, enabled, last_used_at, call_count, created_at, expires_at, note FROM api_tokens ORDER BY id DESC");
         $tokens = $stmt->fetchAll(PDO::FETCH_ASSOC);
         
         foreach ($tokens as &$t) {
@@ -2938,14 +2938,14 @@ switch ($action) {
         $expiresAt = !empty($input['expires_at']) ? $input['expires_at'] : null;
         $note = $input['note'] ?? '';
         
-        $stmt = $db->prepare("INSERT INTO api_tokens (name, token, permissions, rate_limit, expires_at, note) VALUES (?, ?, ?, ?, ?, ?)");
+        $stmt = $db->getPdo()->prepare("INSERT INTO api_tokens (name, token, permissions, rate_limit, expires_at, note) VALUES (?, ?, ?, ?, ?, ?)");
         $stmt->execute([$name, $token, $permissions, $rateLimit, $expiresAt, $note]);
         
         echo json_encode([
             'success' => true, 
             'message' => 'Token创建成功',
             'data' => [
-                'id' => $db->lastInsertId(),
+                'id' => $db->getPdo()->lastInsertId(),
                 'token' => $token  // 仅创建时返回完整token
             ]
         ]);
@@ -2999,7 +2999,7 @@ switch ($action) {
         
         $params[] = $id;
         $sql = "UPDATE api_tokens SET " . implode(', ', $updates) . " WHERE id = ?";
-        $db->prepare($sql)->execute($params);
+        $db->getPdo()->prepare($sql)->execute($params);
         
         echo json_encode(['success' => true, 'message' => '更新成功']);
         break;
@@ -3017,8 +3017,8 @@ switch ($action) {
             exit;
         }
         
-        $db->prepare("DELETE FROM api_tokens WHERE id = ?")->execute([$id]);
-        $db->prepare("DELETE FROM api_logs WHERE token_id = ?")->execute([$id]);
+        $db->getPdo()->prepare("DELETE FROM api_tokens WHERE id = ?")->execute([$id]);
+        $db->getPdo()->prepare("DELETE FROM api_logs WHERE token_id = ?")->execute([$id]);
         
         echo json_encode(['success' => true, 'message' => '删除成功']);
         break;
@@ -3037,7 +3037,7 @@ switch ($action) {
         }
         
         $newToken = bin2hex(random_bytes(32));
-        $db->prepare("UPDATE api_tokens SET token = ? WHERE id = ?")->execute([$newToken, $id]);
+        $db->getPdo()->prepare("UPDATE api_tokens SET token = ? WHERE id = ?")->execute([$newToken, $id]);
         
         echo json_encode([
             'success' => true, 
@@ -3067,7 +3067,7 @@ switch ($action) {
         $sql .= " ORDER BY l.id DESC LIMIT ?";
         $params[] = $limit;
         
-        $stmt = $db->prepare($sql);
+        $stmt = $db->getPdo()->prepare($sql);
         $stmt->execute($params);
         $logs = $stmt->fetchAll(PDO::FETCH_ASSOC);
         
