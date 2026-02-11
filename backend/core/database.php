@@ -59,6 +59,43 @@ class Database {
         return $this->pdo;
     }
     
+    /**
+     * 执行查询并获取单行结果
+     */
+    public function fetch(string $sql, array $params = []): ?array {
+        $stmt = $this->pdo->prepare($sql);
+        $stmt->execute($params);
+        $result = $stmt->fetch(\PDO::FETCH_ASSOC);
+        return $result ?: null;
+    }
+    
+    /**
+     * 执行查询并获取所有结果
+     */
+    public function fetchAll(string $sql, array $params = []): array {
+        $stmt = $this->pdo->prepare($sql);
+        $stmt->execute($params);
+        return $stmt->fetchAll(\PDO::FETCH_ASSOC);
+    }
+    
+    /**
+     * 执行查询并获取单个值
+     */
+    public function fetchColumn(string $sql, array $params = [], int $column = 0): mixed {
+        $stmt = $this->pdo->prepare($sql);
+        $stmt->execute($params);
+        return $stmt->fetchColumn($column);
+    }
+    
+    /**
+     * 执行 INSERT/UPDATE/DELETE 语句
+     */
+    public function execute(string $sql, array $params = []): int {
+        $stmt = $this->pdo->prepare($sql);
+        $stmt->execute($params);
+        return $stmt->rowCount();
+    }
+
     // ==================== 配置相关 ====================
     
     public function getConfig($key, $default = null) {
