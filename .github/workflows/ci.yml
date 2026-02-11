@@ -333,6 +333,11 @@ jobs:
             # 检查项目是否已通过 install.sh 部署
             if [ -d "$INSTALL_DIR/.git" ]; then
               echo "📦 检测到已有项目，执行更新..."
+              
+              # 先修复权限，让当前用户可以操作
+              echo "🔧 修复 Git 目录权限..."
+              sudo chown -R $(whoami):$(whoami) "$INSTALL_DIR"
+              
               cd "$INSTALL_DIR"
               
               # 保存本地配置
@@ -353,10 +358,10 @@ jobs:
                 echo "✅ 已恢复数据库配置"
               fi
               
-              # 设置权限
+              # 设置权限给 www-data（Web 服务器需要）
               echo "🔒 设置文件权限..."
-              sudo chown -R www-data:www-data "$INSTALL_DIR" || true
-              sudo chmod -R 755 "$INSTALL_DIR" || true
+              sudo chown -R www-data:www-data "$INSTALL_DIR"
+              sudo chmod -R 755 "$INSTALL_DIR"
               sudo chmod -R 777 "$INSTALL_DIR/logs" 2>/dev/null || true
               
               # 重载服务
@@ -374,8 +379,8 @@ jobs:
       - name: Upload frontend dist to server
         uses: appleboy/scp-action@v0.1.7
         with:
-          host: ${{ secrets.STAGING_HOST }}
-          username: ${{ secrets.STAGING_USER }}
+          host: 43.157.159.31
+          username: ubuntu
           key: ${{ secrets.STAGING_SSH_KEY }}
           source: "dist/*"
           target: "/var/www/ip-manager/"
@@ -384,8 +389,8 @@ jobs:
       - name: Set frontend permissions
         uses: appleboy/ssh-action@v1.0.3
         with:
-          host: ${{ secrets.STAGING_HOST }}
-          username: ${{ secrets.STAGING_USER }}
+          host: 43.157.159.31
+          username: ubuntu
           key: ${{ secrets.STAGING_SSH_KEY }}
           script: |
             sudo chown -R www-data:www-data /var/www/ip-manager/dist
