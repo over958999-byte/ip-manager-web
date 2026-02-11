@@ -58,7 +58,7 @@ export default defineConfig(({ mode }) => {
     css: {
       preprocessorOptions: {
         scss: {
-          additionalData: `@use "@/styles/variables.scss" as *;`
+          additionalData: `@import "@/styles/variables.scss";`
         }
       }
     },
@@ -82,13 +82,7 @@ export default defineConfig(({ mode }) => {
       },
       cssCodeSplit: true,
       sourcemap: false,
-      minify: 'terser',
-      terserOptions: {
-        compress: {
-          drop_console: true,
-          drop_debugger: true
-        }
-      }
+      minify: 'esbuild'
     },
     
     optimizeDeps: {
