@@ -5,12 +5,14 @@ import api from '../api'
 export const useUserStore = defineStore('user', () => {
   const isLoggedIn = ref(false)
   const username = ref('')
+  const role = ref('admin') // 单用户系统，登录用户即为管理员
 
   async function login(user, password, totpCode = '', remember = false) {
     const res = await api.login(user, password, totpCode, remember)
     if (res.success && !res.data?.require_totp) {
       isLoggedIn.value = true
       username.value = user || 'admin'
+      role.value = 'admin'
     }
     return res
   }
@@ -27,6 +29,7 @@ export const useUserStore = defineStore('user', () => {
       isLoggedIn.value = res.logged_in
       if (res.logged_in && res.username) {
         username.value = res.username
+        role.value = 'admin' // 登录成功即为管理员
       }
       return res.logged_in
     } catch (e) {
@@ -38,6 +41,7 @@ export const useUserStore = defineStore('user', () => {
   return {
     isLoggedIn,
     username,
+    role,
     login,
     logout,
     checkLogin
