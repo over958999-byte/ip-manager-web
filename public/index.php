@@ -5,6 +5,7 @@
  */
 
 require_once __DIR__ . '/../backend/core/database.php';
+require_once __DIR__ . '/../backend/core/redis.php';
 
 // 获取数据库实例
 $db = Database::getInstance();

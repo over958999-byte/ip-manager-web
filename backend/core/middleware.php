@@ -4,6 +4,7 @@
  * 处理登录验证、权限检查、API Token验证
  */
 
+require_once __DIR__ . '/database.php';
 require_once __DIR__ . '/utils.php';
 
 class AuthMiddleware {

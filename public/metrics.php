@@ -3,6 +3,8 @@
  * Prometheus 指标端点
  */
 
+require_once __DIR__ . '/../backend/core/database.php';
+require_once __DIR__ . '/../backend/core/redis.php';
 require_once __DIR__ . '/../backend/core/prometheus.php';
 
 // 设置正确的 Content-Type

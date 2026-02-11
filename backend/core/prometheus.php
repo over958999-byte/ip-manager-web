@@ -98,7 +98,7 @@ class PrometheusMetrics {
     /**
      * 注册 Histogram 指标
      */
-    public function registerHistogram(string $name, string $help, array $labels, array $buckets = null): void {
+    public function registerHistogram(string $name, string $help, array $labels, ?array $buckets = null): void {
         $this->metrics[$name] = [
             'type' => self::TYPE_HISTOGRAM,
             'help' => $help,

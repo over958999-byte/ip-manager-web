@@ -31,6 +31,9 @@ require_once __DIR__ . '/../core/database.php';
 require_once __DIR__ . '/../core/router.php';
 require_once __DIR__ . '/../core/container.php';
 require_once __DIR__ . '/../core/utils.php';
+require_once __DIR__ . '/../core/redis.php';
+require_once __DIR__ . '/../core/middleware.php';
+require_once __DIR__ . '/../core/prometheus.php';
 
 // 自动加载控制器
 spl_autoload_register(function($class) {
@@ -55,6 +58,14 @@ set_exception_handler(function(Throwable $e) {
 
 // 获取路由器实例
 $router = Router::getInstance();
+
+// 注册全局中间件
+$router->middleware([
+    new CorsMiddleware(['*']),           // CORS 跨域
+    new SecurityHeadersMiddleware(),      // 安全响应头
+    new RateLimitMiddleware(120, 60),     // 限流: 每分钟120次请求
+    new LogMiddleware(),                  // 请求日志
+]);
 
 // 设置路由前缀
 $router->group(['prefix' => '/api/v2'], function($router) {
