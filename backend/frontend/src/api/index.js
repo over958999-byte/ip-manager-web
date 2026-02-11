@@ -235,67 +235,21 @@ const api = {
   logout: () => request.post('?action=logout'),
   checkLogin: () => request.get('?action=check_login'),
   
-  // IP跳转管理（兼容旧版）
-  getRedirects: () => request.get('?action=get_redirects'),
-  addRedirect: (data) => request.post('?action=add_redirect', data),
-  updateRedirect: (data) => request.post('?action=update_redirect', data),
-  deleteRedirect: (ip) => request.post('?action=delete_redirect', { ip }),
-  toggleRedirect: (ip) => request.post('?action=toggle_redirect', { ip }),
-  batchAdd: (data) => request.post('?action=batch_add', data),
-  
   // 统计相关
   getStats: () => request.get('?action=get_stats'),
   getIpStats: (ip) => request.get('?action=get_ip_stats', { params: { ip } }),
   clearStats: (ip) => request.post('?action=clear_stats', { ip }),
-  
-  // IP池管理
-  getIpPool: () => request.get('?action=get_ip_pool'),
-  addToPool: (ips) => request.post('?action=add_to_pool', { ips }),
-  removeFromPool: (ips) => request.post('?action=remove_from_pool', { ips }),
-  clearPool: () => request.post('?action=clear_pool'),
-  activateFromPool: (data) => request.post('?action=activate_from_pool', data),
-  returnToPool: (ip) => request.post('?action=return_to_pool', { ip }),
-  
-  // 反爬虫管理
-  getAntibotStats: () => request.get('?action=get_antibot_stats'),
-  getAntibotConfig: () => request.get('?action=get_antibot_config'),
-  updateAntibotConfig: (config) => request.post('?action=update_antibot_config', { config }),
-  antibotUnblock: (ip) => request.post('?action=antibot_unblock', { ip }),
-  antibotClearBlocks: () => request.post('?action=antibot_clear_blocks'),
-  antibotResetStats: () => request.post('?action=antibot_reset_stats'),
-  antibotAddBlacklist: (ip) => request.post('?action=antibot_add_blacklist', { ip }),
-  antibotRemoveBlacklist: (ip) => request.post('?action=antibot_remove_blacklist', { ip }),
-  antibotAddWhitelist: (ip) => request.post('?action=antibot_add_whitelist', { ip }),
-  antibotRemoveWhitelist: (ip) => request.post('?action=antibot_remove_whitelist', { ip }),
   
   // 系统设置
   changePassword: (oldPassword, newPassword) => request.post('?action=change_password', { 
     old_password: oldPassword, 
     new_password: newPassword 
   }),
-  exportData: () => request.get('?action=export'),
-  importData: (data) => request.post('?action=import', { data }),
   
   // 系统更新
   checkUpdate: () => request.get('?action=system_check_update'),
   doUpdate: () => request.post('?action=system_update'),
   getSystemInfo: () => request.get('?action=system_info'),
-  
-  // Cloudflare API
-  cfGetConfig: () => request.get('?action=cf_get_config'),
-  cfSaveConfig: (data) => request.post('?action=cf_save_config', data),
-  cfListZones: () => request.get('?action=cf_list_zones'),
-  cfAddDomain: (data) => request.post('?action=cf_add_domain', data),
-  cfBatchAddDomains: (data) => request.post('?action=cf_batch_add_domains', data),
-  cfEnableHttps: (domain) => request.post('?action=cf_enable_https', { domain }),
-  
-  // 域名安全检测 API
-  domainSafetyCheck: (domain, domainId) => request.post('?action=domain_safety_check', { domain, domain_id: domainId }),
-  domainSafetyCheckAll: () => request.post('?action=domain_safety_check_all'),
-  domainSafetyStats: () => request.get('?action=domain_safety_stats'),
-  domainSafetyLogs: (limit = 100) => request.get('?action=domain_safety_logs', { params: { limit } }),
-  domainSafetyConfig: () => request.get('?action=domain_safety_config'),
-  domainSafetySaveConfig: (config) => request.post('?action=domain_safety_config', { config })
 }
 
 // 导出 getAntibotStats 供 Dashboard 使用
