@@ -458,8 +458,23 @@ const copyToken = async (row) => {
 }
 
 const copyNewToken = async () => {
+  const text = newTokenValue.value
   try {
-    await navigator.clipboard.writeText(newTokenValue.value)
+    // 优先使用 Clipboard API
+    if (navigator.clipboard && window.isSecureContext) {
+      await navigator.clipboard.writeText(text)
+      ElMessage.success('已复制到剪贴板')
+      return
+    }
+    // HTTP 环境下使用传统方法
+    const textArea = document.createElement('textarea')
+    textArea.value = text
+    textArea.style.position = 'fixed'
+    textArea.style.left = '-9999px'
+    document.body.appendChild(textArea)
+    textArea.select()
+    document.execCommand('copy')
+    document.body.removeChild(textArea)
     ElMessage.success('已复制到剪贴板')
   } catch (e) {
     ElMessage.error('复制失败，请手动复制')
