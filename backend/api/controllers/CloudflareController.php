@@ -107,8 +107,37 @@ class CloudflareController extends BaseController
         }
         
         $pdo = $this->pdo();
-        $stmt = $pdo->query("SELECT * FROM cf_domains ORDER BY created_at DESC");
-        $localDomains = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        
+        // 检查表是否存在，不存在则创建
+        try {
+            $pdo->query("SELECT 1 FROM cf_domains LIMIT 1");
+        } catch (PDOException $e) {
+            // 表不存在，创建它
+            $pdo->exec("
+                CREATE TABLE IF NOT EXISTS cf_domains (
+                    id INT AUTO_INCREMENT PRIMARY KEY,
+                    domain VARCHAR(255) NOT NULL UNIQUE,
+                    zone_id VARCHAR(64),
+                    status VARCHAR(32) DEFAULT 'pending',
+                    nameservers TEXT,
+                    server_ip VARCHAR(45),
+                    https_enabled TINYINT(1) DEFAULT 0,
+                    added_to_pool TINYINT(1) DEFAULT 0,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                    INDEX idx_domain (domain),
+                    INDEX idx_zone_id (zone_id)
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+            ");
+        }
+        
+        try {
+            $stmt = $pdo->query("SELECT * FROM cf_domains ORDER BY created_at DESC");
+            $localDomains = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        } catch (PDOException $e) {
+            $this->success(['zones' => [], 'total' => 0, 'error' => $e->getMessage()]);
+            return;
+        }
         
         if (empty($localDomains)) {
             $this->success(['zones' => [], 'total' => 0]);

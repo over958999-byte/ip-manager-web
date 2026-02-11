@@ -972,7 +972,7 @@ const loadCfZonesForManage = async () => {
   try {
     const res = await cfListZones()
     if (res.success) {
-      cfManageZones.value = res.zones || []
+      cfManageZones.value = res.data?.zones || []
     }
   } finally {
     loading.cfManage = false
@@ -990,7 +990,7 @@ const loadDnsRecords = async () => {
   try {
     const res = await cfGetDnsRecords(cfSelectedZone.value.id)
     if (res.success) {
-      cfDnsRecords.value = res.records || []
+      cfDnsRecords.value = res.data?.records || []
     }
   } finally {
     loading.dnsRecords = false
@@ -1571,7 +1571,7 @@ const loadCfZones = async () => {
   try {
     const res = await cfListZones()
     if (res.success) {
-      cfZones.value = res.zones || []
+      cfZones.value = res.data?.zones || []
     }
   } catch {
     ElMessage.error('获取域名列表失败')

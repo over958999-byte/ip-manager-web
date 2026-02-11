@@ -124,7 +124,7 @@
 </template>
 
 <script setup>
-import { ref, reactive } from 'vue'
+import { ref, reactive, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useUserStore } from '../stores/user'
 import { ElMessage } from 'element-plus'
@@ -152,6 +152,16 @@ const rules = {
   ]
 }
 
+// 页面加载时恢复保存的用户名密码
+onMounted(() => {
+  const savedRemember = localStorage.getItem('remember_me')
+  if (savedRemember === 'true') {
+    form.remember = true
+    form.username = localStorage.getItem('saved_username') || ''
+    form.password = localStorage.getItem('saved_password') || ''
+  }
+})
+
 const handleLogin = async () => {
   if (!formRef.value) return
   
@@ -166,6 +176,16 @@ const handleLogin = async () => {
             requireTotp.value = true
             ElMessage.warning('请输入双因素认证码')
           } else {
+            // 保存或清除用户名密码
+            if (form.remember) {
+              localStorage.setItem('remember_me', 'true')
+              localStorage.setItem('saved_username', form.username)
+              localStorage.setItem('saved_password', form.password)
+            } else {
+              localStorage.removeItem('remember_me')
+              localStorage.removeItem('saved_username')
+              localStorage.removeItem('saved_password')
+            }
             ElMessage.success('登录成功，欢迎回来！')
             router.push('/dashboard')
           }
