@@ -302,28 +302,54 @@ jobs:
           username: ${{ secrets.STAGING_USER }}
           key: ${{ secrets.STAGING_SSH_KEY }}
           script: |
-            # 确保目录存在
-            mkdir -p /opt/ip-manager
-            cd /opt/ip-manager
+            set -e
             
-            # 如果是 Docker 部署
-            if [ -f docker-compose.yml ]; then
-              docker compose pull
-              docker compose up -d
-              docker system prune -f
-            fi
+            # 部署目录（与 install.sh 保持一致）
+            INSTALL_DIR="/var/www/ip-manager"
             
-            # 如果是 Git 部署（直接拉取代码）
-            if [ -d .git ]; then
+            # 检查项目是否已通过 install.sh 部署
+            if [ -d "$INSTALL_DIR/.git" ]; then
+              echo "📦 检测到已有项目，执行更新..."
+              cd "$INSTALL_DIR"
+              
+              # 保存本地配置
+              if [ -f "backend/core/db_config.php" ]; then
+                cp backend/core/db_config.php /tmp/db_config.php.bak
+              fi
+              
+              # 拉取最新代码
               git fetch origin
               git reset --hard origin/master
-              # 重启服务
-              if [ -f /etc/systemd/system/ip-manager.service ]; then
-                sudo systemctl restart ip-manager
+              
+              # 恢复配置
+              if [ -f "/tmp/db_config.php.bak" ]; then
+                cp /tmp/db_config.php.bak backend/core/db_config.php
               fi
+              
+              # 重新构建前端
+              if [ -d "backend/frontend" ] && [ -f "backend/frontend/package.json" ]; then
+                echo "🔨 重新构建前端..."
+                cd backend/frontend
+                npm install --legacy-peer-deps 2>/dev/null || npm install
+                npm run build
+                cd "$INSTALL_DIR"
+              fi
+              
+              # 设置权限
+              sudo chown -R www-data:www-data "$INSTALL_DIR"
+              sudo chmod -R 755 "$INSTALL_DIR"
+              sudo chmod -R 777 "$INSTALL_DIR/logs" 2>/dev/null || true
+              
+              # 重载 PHP-FPM 和 Nginx
+              sudo systemctl reload php*-fpm 2>/dev/null || true
+              sudo systemctl reload nginx 2>/dev/null || true
+              
+              echo "✅ 部署完成: $(date)"
+            else
+              echo "⚠️ 项目未初始化，请先运行 install.sh 进行首次部署"
+              echo "   curl -fsSL https://raw.githubusercontent.com/over958999-byte/ip-manager-web/master/deploy/install.sh | sudo bash"
+              exit 1
             fi
-            
-            echo "部署完成: $(date)"
 
   # ============================================
   # 部署到生产环境（需手动批准）
@@ -341,15 +367,44 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Blue-Green Deployment
+      - name: Production Deployment
         uses: appleboy/ssh-action@v1.0.3
         with:
           host: ${{ secrets.PROD_HOST }}
           username: ${{ secrets.PROD_USER }}
           key: ${{ secrets.PROD_SSH_KEY }}
           script: |
-            cd /opt/ip-manager
-            ./deploy/blue-green.sh ${{ github.ref_name }}
+            set -e
+            INSTALL_DIR="/var/www/ip-manager"
+            
+            if [ -d "$INSTALL_DIR/.git" ]; then
+              cd "$INSTALL_DIR"
+              
+              # 备份配置
+              cp backend/core/db_config.php /tmp/db_config.php.bak 2>/dev/null || true
+              
+              # 拉取指定版本
+              git fetch origin --tags
+              git checkout ${{ github.ref_name }}
+              
+              # 恢复配置
+              cp /tmp/db_config.php.bak backend/core/db_config.php 2>/dev/null || true
+              
+              # 构建前端
+              cd backend/frontend
+              npm install --legacy-peer-deps 2>/dev/null || npm install
+              npm run build
+              cd "$INSTALL_DIR"
+              
+              # 权限和重载
+              sudo chown -R www-data:www-data "$INSTALL_DIR"
+              sudo systemctl reload php*-fpm nginx
+              
+              echo "✅ 生产环境部署完成: ${{ github.ref_name }}"
+            else
+              echo "❌ 生产环境未初始化"
+              exit 1
+            fi
 
       - name: Notify deployment
         uses: slackapi/slack-github-action@v1.25.0
