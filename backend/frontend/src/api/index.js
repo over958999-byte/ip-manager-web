@@ -215,8 +215,8 @@ export const checkAllDomains = () => request.get('?action=domain_check_all')
 // ==================== 旧版兼容 API ====================
 
 const api = {
-  // 通用请求方法
-  request: (data) => request.post('', data),
+  // 通用请求方法 - 禁用重复请求取消，避免快速操作被意外取消
+  request: (data) => request.post('', data, { cancelDuplicate: false }),
   
   // 登录相关
   login: (username, password) => request.post('?action=login', { username, password }),

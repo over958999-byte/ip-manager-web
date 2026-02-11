@@ -385,12 +385,18 @@ const saveToken = async () => {
 
   try {
     if (editingToken.value) {
-      await api.request({
+      const res = await api.request({
         action: 'api_token_update',
         id: editingToken.value.id,
         ...tokenForm
       })
-      ElMessage.success('更新成功')
+      if (res.success) {
+        ElMessage.success('更新成功')
+        tokenDialogVisible.value = false
+        loadTokens()
+      } else {
+        ElMessage.error(res.message || '更新失败')
+      }
     } else {
       const res = await api.request({
         action: 'api_token_create',
@@ -399,12 +405,15 @@ const saveToken = async () => {
       if (res.success) {
         newTokenValue.value = res.data.token
         newTokenDialogVisible.value = true
+        tokenDialogVisible.value = false
+        loadTokens()
+      } else {
+        ElMessage.error(res.message || '创建失败')
       }
     }
-    tokenDialogVisible.value = false
-    loadTokens()
   } catch (e) {
-    ElMessage.error('操作失败')
+    console.error('Token操作失败:', e)
+    ElMessage.error(e.message || '操作失败')
   }
 }
 
