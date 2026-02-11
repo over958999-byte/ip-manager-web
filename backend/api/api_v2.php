@@ -21,8 +21,26 @@ if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
     exit;
 }
 
-// 启动会话
+// 启动会话（配置安全的 session 参数）
 if (session_status() === PHP_SESSION_NONE) {
+    $isHttps = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') 
+               || ($_SERVER['SERVER_PORT'] ?? 80) == 443;
+    
+    // 检查是否有 remember_token cookie
+    $sessionLifetime = 0; // 默认关闭浏览器后失效
+    if (!empty($_COOKIE['remember_token'])) {
+        $sessionLifetime = 7 * 24 * 3600; // 7天
+    }
+    
+    session_set_cookie_params([
+        'lifetime' => $sessionLifetime,
+        'path' => '/',
+        'domain' => '',
+        'secure' => $isHttps,
+        'httponly' => true,
+        'samesite' => 'Lax' // 使用 Lax 以支持正常的导航请求
+    ]);
+    
     session_start();
 }
 

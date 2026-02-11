@@ -159,7 +159,7 @@ const handleLogin = async () => {
     if (valid) {
       loading.value = true
       try {
-        const res = await userStore.login(form.username, form.password, form.totpCode)
+        const res = await userStore.login(form.username, form.password, form.totpCode, form.remember)
         if (res.success) {
           // 检查是否需要 TOTP 验证
           if (res.data?.require_totp) {

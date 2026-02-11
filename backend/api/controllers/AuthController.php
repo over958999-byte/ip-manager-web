@@ -88,6 +88,40 @@ class AuthController extends BaseController
         $_SESSION['login_time'] = time();
         session_regenerate_id(true); // 防止会话固定攻击
         
+        // 处理"记住我"功能
+        $remember = $this->param('remember', false);
+        if ($remember) {
+            // 生成 remember token 并设置长期 cookie
+            $rememberToken = bin2hex(random_bytes(32));
+            $expiry = time() + (7 * 24 * 3600); // 7天
+            
+            // 保存 token 到数据库（用于验证）
+            $this->db->setConfig('remember_token', $rememberToken);
+            $this->db->setConfig('remember_token_expiry', $expiry);
+            
+            // 设置 cookie
+            $isHttps = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off')
+                       || ($_SERVER['SERVER_PORT'] ?? 80) == 443;
+            setcookie('remember_token', $rememberToken, [
+                'expires' => $expiry,
+                'path' => '/',
+                'secure' => $isHttps,
+                'httponly' => true,
+                'samesite' => 'Lax'
+            ]);
+            
+            // 延长 session cookie 生命周期
+            $params = session_get_cookie_params();
+            setcookie(session_name(), session_id(), [
+                'expires' => $expiry,
+                'path' => $params['path'],
+                'domain' => $params['domain'],
+                'secure' => $isHttps,
+                'httponly' => true,
+                'samesite' => 'Lax'
+            ]);
+        }
+        
         $this->audit('login', 'user', null, ['ip' => $this->getClientIp()]);
         Logger::logInfo('用户登录成功');
         
@@ -179,6 +213,22 @@ class AuthController extends BaseController
     public function logout(): void
     {
         $this->audit('logout', 'user');
+        
+        // 清除 remember token
+        $this->db->setConfig('remember_token', '');
+        $this->db->setConfig('remember_token_expiry', 0);
+        
+        // 删除 remember_token cookie
+        $isHttps = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off')
+                   || ($_SERVER['SERVER_PORT'] ?? 80) == 443;
+        setcookie('remember_token', '', [
+            'expires' => time() - 3600,
+            'path' => '/',
+            'secure' => $isHttps,
+            'httponly' => true,
+            'samesite' => 'Lax'
+        ]);
+        
         session_destroy();
         $this->success(null, '已退出登录');
     }
@@ -189,8 +239,40 @@ class AuthController extends BaseController
      */
     public function checkLogin(): void
     {
+        $loggedIn = $this->isLoggedIn();
+        
+        // 如果未登录，尝试通过 remember_token 恢复登录状态
+        if (!$loggedIn && !empty($_COOKIE['remember_token'])) {
+            $storedToken = $this->db->getConfig('remember_token', '');
+            $tokenExpiry = (int)$this->db->getConfig('remember_token_expiry', 0);
+            
+            if (!empty($storedToken) 
+                && hash_equals($storedToken, $_COOKIE['remember_token'])
+                && $tokenExpiry > time()) {
+                // Token 有效，恢复登录状态
+                $_SESSION['logged_in'] = true;
+                $_SESSION['login_time'] = time();
+                session_regenerate_id(true);
+                $loggedIn = true;
+                
+                // 刷新 token 和 session 过期时间
+                $newExpiry = time() + (7 * 24 * 3600);
+                $this->db->setConfig('remember_token_expiry', $newExpiry);
+                
+                $isHttps = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off')
+                           || ($_SERVER['SERVER_PORT'] ?? 80) == 443;
+                setcookie('remember_token', $storedToken, [
+                    'expires' => $newExpiry,
+                    'path' => '/',
+                    'secure' => $isHttps,
+                    'httponly' => true,
+                    'samesite' => 'Lax'
+                ]);
+            }
+        }
+        
         $this->success([
-            'logged_in' => $this->isLoggedIn(),
+            'logged_in' => $loggedIn,
             'login_time' => $_SESSION['login_time'] ?? null
         ]);
     }

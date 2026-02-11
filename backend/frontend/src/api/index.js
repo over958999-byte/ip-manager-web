@@ -231,7 +231,9 @@ const api = {
   },
   
   // 登录相关
-  login: (username, password, totpCode = '') => request.post('?action=login', { username, password, totp_code: totpCode }),
+  login: (username, password, totpCode = '', remember = false) => request.post('?action=login', { 
+    username, password, totp_code: totpCode, remember 
+  }),
   logout: () => request.post('?action=logout'),
   checkLogin: () => request.get('?action=check_login'),
   
