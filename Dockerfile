@@ -23,7 +23,7 @@ RUN npm run build
 # ============================================
 # 阶段2: PHP运行环境
 # ============================================
-FROM php:8.2-fpm-alpine AS production
+FROM php:8.5-fpm-alpine AS production
 
 # 安装系统依赖
 RUN apk add --no-cache \
