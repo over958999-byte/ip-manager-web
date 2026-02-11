@@ -3167,7 +3167,7 @@ switch ($action) {
         $jump = new JumpService($db->getPdo());
         
         if (!empty($code)) {
-            $rule = $jump->getByCode($code);
+            $rule = $jump->getByKey('code', $code);
         } else {
             $rule = $jump->getById($id);
         }
@@ -3266,7 +3266,7 @@ switch ($action) {
         $jump = new JumpService($db->getPdo());
         
         if (!empty($code)) {
-            $rule = $jump->getByCode($code);
+            $rule = $jump->getByKey('code', $code);
             if ($rule) $id = $rule['id'];
         }
         
@@ -3343,7 +3343,7 @@ switch ($action) {
         $jump = new JumpService($db->getPdo());
         
         if (!empty($code)) {
-            $rule = $jump->getByCode($code);
+            $rule = $jump->getByKey('code', $code);
         } else {
             $rule = $jump->getById($id);
         }
