@@ -118,13 +118,13 @@ class ImportExportService {
                 $sql = "SELECT ip, port, protocol, country, region, city, isp, status, speed, last_check FROM ip_pool WHERE 1=1";
                 break;
             case self::TYPE_DOMAINS:
-                $sql = "SELECT domain, type, target, is_safe, cf_zone_id, enabled, created_at FROM domains WHERE 1=1";
+                $sql = "SELECT domain, name, safety_status, enabled, created_at FROM jump_domains WHERE 1=1";
                 break;
             case self::TYPE_JUMP_RULES:
-                $sql = "SELECT name, source_domain, target_url, device_filter, region_filter, weight, enabled, created_at FROM jump_rules WHERE 1=1";
+                $sql = "SELECT match_key, target_url, title, note, total_clicks, enabled, created_at FROM jump_rules WHERE 1=1";
                 break;
             case self::TYPE_SHORTLINKS:
-                $sql = "SELECT code, original_url, clicks, created_at, expires_at FROM shortlinks WHERE 1=1";
+                $sql = "SELECT code, original_url, total_clicks, created_at FROM short_links WHERE 1=1";
                 break;
             default:
                 return [];

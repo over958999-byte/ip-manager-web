@@ -327,16 +327,16 @@ class ExternalApiController extends BaseController
         $dailyStats = [];
         try {
             $stmt = $this->pdo()->prepare("
-                SELECT DATE(created_at) as date, COUNT(*) as clicks 
-                FROM click_logs 
-                WHERE rule_id = ? AND created_at >= DATE_SUB(NOW(), INTERVAL 7 DAY)
-                GROUP BY DATE(created_at)
+                SELECT DATE(visited_at) as date, COUNT(*) as clicks 
+                FROM jump_logs 
+                WHERE rule_id = ? AND visited_at >= DATE_SUB(NOW(), INTERVAL 7 DAY)
+                GROUP BY DATE(visited_at)
                 ORDER BY date ASC
             ");
             $stmt->execute([$rule['id']]);
             $dailyStats = $stmt->fetchAll(PDO::FETCH_ASSOC);
         } catch (Exception $e) {
-            // click_logs 表可能不存在
+            // jump_logs 表可能不存在
         }
         
         $this->logApiCall('get_stats', 200);

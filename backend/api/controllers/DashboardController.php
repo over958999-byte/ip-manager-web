@@ -19,26 +19,26 @@ class DashboardController extends BaseController
             "SELECT 
                 COUNT(*) as total,
                 SUM(CASE WHEN enabled = 1 THEN 1 ELSE 0 END) as active,
-                SUM(clicks) as total_clicks
+                COALESCE(SUM(total_clicks), 0) as total_clicks
             FROM jump_rules"
         );
         
-        // 短链接统计
+        // 短链接统计 (表名是 short_links)
         $shortlinkStats = $this->db->fetch(
             "SELECT 
                 COUNT(*) as total,
                 SUM(CASE WHEN enabled = 1 THEN 1 ELSE 0 END) as active,
-                SUM(clicks) as total_clicks
-            FROM shortlinks"
+                COALESCE(SUM(total_clicks), 0) as total_clicks
+            FROM short_links"
         );
         
-        // 域名统计
+        // 域名统计 (表名是 jump_domains)
         $domainStats = $this->db->fetch(
             "SELECT 
                 COUNT(*) as total,
                 SUM(CASE WHEN enabled = 1 THEN 1 ELSE 0 END) as active,
-                SUM(CASE WHEN cf_zone_id IS NOT NULL THEN 1 ELSE 0 END) as cf_enabled
-            FROM domains"
+                0 as cf_enabled
+            FROM jump_domains"
         );
         
         // IP 池统计
@@ -48,12 +48,12 @@ class DashboardController extends BaseController
                 SUM(CASE WHEN status = 'active' THEN 1 ELSE 0 END) as active,
                 SUM(CASE WHEN status = 'blocked' THEN 1 ELSE 0 END) as blocked
             FROM ip_pool"
-        );
+        ) ?: ['total' => 0, 'active' => 0, 'blocked' => 0];
         
         // 今日访问量
         $today = date('Y-m-d');
         $todayVisits = $this->db->fetchColumn(
-            "SELECT SUM(clicks) FROM jump_rules WHERE DATE(updated_at) = ?",
+            "SELECT COALESCE(SUM(total_clicks), 0) FROM jump_rules WHERE DATE(updated_at) = ?",
             [$today]
         ) ?? 0;
         
@@ -61,9 +61,9 @@ class DashboardController extends BaseController
         $antibotStats = $this->db->fetch(
             "SELECT 
                 COUNT(*) as blocked_ips,
-                SUM(block_count) as total_blocks
+                COALESCE(SUM(block_count), 0) as total_blocks
             FROM antibot_blocks"
-        );
+        ) ?: ['blocked_ips' => 0, 'total_blocks' => 0];
         
         $this->success([
             'jump_rules' => $jumpStats,
@@ -96,14 +96,14 @@ class DashboardController extends BaseController
         
         $startDate = date('Y-m-d', strtotime("-{$days} days"));
         
-        // 获取每日点击趋势
+        // 获取每日点击趋势 (使用 jump_logs 表)
         $clickTrend = $this->db->fetchAll(
             "SELECT 
-                DATE(created_at) as date,
+                DATE(visited_at) as date,
                 COUNT(*) as count
-            FROM access_logs 
-            WHERE created_at >= ?
-            GROUP BY DATE(created_at)
+            FROM jump_logs 
+            WHERE visited_at >= ?
+            GROUP BY DATE(visited_at)
             ORDER BY date",
             [$startDate]
         );
@@ -160,8 +160,21 @@ class DashboardController extends BaseController
         
         $limit = min(100, (int)($this->param('limit') ?? 20));
         
+        // 使用 jump_logs 表
         $logs = $this->db->fetchAll(
-            "SELECT * FROM access_logs ORDER BY created_at DESC LIMIT ?",
+            "SELECT 
+                id,
+                rule_type as type,
+                match_key,
+                visitor_ip as ip,
+                country,
+                device_type,
+                browser,
+                referer,
+                visited_at as created_at
+            FROM jump_logs 
+            ORDER BY visited_at DESC 
+            LIMIT ?",
             [$limit]
         );
         

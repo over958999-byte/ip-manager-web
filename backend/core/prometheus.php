@@ -274,10 +274,10 @@ class PrometheusMetrics {
                 $this->setGauge('ip_manager_ip_pool_total', (float)$row['cnt'], [$row['status'] ?? 'unknown']);
             }
             
-            // 域名统计
-            $stmt = $pdo->query("SELECT is_safe, COUNT(*) as cnt FROM domains GROUP BY is_safe");
+            // 域名统计 (使用 jump_domains 表)
+            $stmt = $pdo->query("SELECT safety_status, COUNT(*) as cnt FROM jump_domains GROUP BY safety_status");
             while ($row = $stmt->fetch(PDO::FETCH_ASSOC)) {
-                $status = $row['is_safe'] ? 'safe' : 'unsafe';
+                $status = $row['safety_status'] ?? 'unknown';
                 $this->setGauge('ip_manager_domains_total', (float)$row['cnt'], [$status]);
             }
             
