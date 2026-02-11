@@ -3123,12 +3123,13 @@ switch ($action) {
         logApiCall($db, $tokenData['token_id'], 'shortlink_create', $input, $result['success'] ? 200 : 400);
         
         if ($result['success']) {
+            $data = $result['data'];
             echo json_encode([
                 'success' => true,
                 'data' => [
-                    'id' => $result['id'],
-                    'code' => $result['code'],
-                    'short_url' => $result['short_url'],
+                    'id' => $data['id'],
+                    'code' => $data['match_key'],
+                    'short_url' => $data['jump_url'],
                     'target_url' => $targetUrl
                 ]
             ]);
