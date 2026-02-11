@@ -16,15 +16,22 @@ class AntibotController extends BaseController
     {
         $this->requireLogin();
         
-        require_once __DIR__ . '/../../../public/bad_ips.php';
-        
         $stats = $this->db->getAntibotStats();
         $stats['recent_logs'] = $this->db->getAntibotLogs(100);
         $blocked = $this->db->getBlockedList();
         $config = $this->db->getAntibotConfig();
         $config['ip_blacklist'] = $this->db->getAntibotBlacklist();
         $config['ip_whitelist'] = $this->db->getAntibotWhitelist();
-        $badIpStats = BadIpDatabase::getStats();
+        
+        // 尝试获取恶意IP库统计
+        $badIpStats = [];
+        $ipBlacklistPath = __DIR__ . '/../../../public/ip_blacklist.php';
+        if (file_exists($ipBlacklistPath)) {
+            require_once $ipBlacklistPath;
+            if (class_exists('BadIpDatabase')) {
+                $badIpStats = BadIpDatabase::getStats();
+            }
+        }
         
         $this->success([
             'stats' => $stats,
