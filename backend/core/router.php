@@ -275,7 +275,7 @@ class Router {
      * 异常处理
      */
     protected function handleException(Exception $e): void {
-        $code = $e->getCode() ?: 500;
+        $code = (int)($e->getCode() ?: 500);
         Utils::error($e->getMessage(), $code);
     }
     
