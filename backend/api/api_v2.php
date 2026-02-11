@@ -218,6 +218,11 @@ if (!empty($action)) {
         'realtime_logs' => ['GET', '/api/v2/dashboard/realtime-logs'],
         'system_status' => ['GET', '/api/v2/dashboard/system-status'],
         
+        // System Health & Monitoring
+        'system_health' => ['GET', '/api/v2/system/health'],
+        'prometheus_metrics' => ['GET', '/api/v2/system/metrics'],
+        'cache_stats' => ['GET', '/api/v2/system/cache-stats'],
+        
         // Import/Export
         'export_data' => ['POST', '/api/v2/import-export/export'],
         'import_data' => ['POST', '/api/v2/import-export/import'],

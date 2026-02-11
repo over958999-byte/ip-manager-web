@@ -27,6 +27,7 @@ class AuthController extends BaseController
     public function login(): void
     {
         $password = $this->param('password', '');
+        $totpCode = $this->param('totp_code', '');
         $storedPassword = $this->db->getConfig('admin_password', 'admin123');
         $passwordHash = $this->db->getConfig('admin_password_hash', '');
         
@@ -53,21 +54,122 @@ class AuthController extends BaseController
             }
         }
         
-        if ($loginSuccess) {
-            $_SESSION['logged_in'] = true;
-            $_SESSION['login_time'] = time();
-            session_regenerate_id(true); // 防止会话固定攻击
-            
-            $this->audit('login', 'user', null, ['ip' => $this->getClientIp()]);
-            Logger::logInfo('用户登录成功');
-            
-            $this->success([
-                'csrf_token' => $this->security->getCsrfToken()
-            ], '登录成功');
-        } else {
+        if (!$loginSuccess) {
             Logger::logSecurityEvent('登录失败，密码错误');
             $this->error('密码错误', 401);
+            return;
         }
+        
+        // 检查是否启用了 TOTP
+        $totpEnabled = $this->db->getConfig('totp_enabled', false);
+        $totpSecret = $this->db->getConfig('totp_secret', '');
+        
+        if ($totpEnabled && !empty($totpSecret)) {
+            // 需要 TOTP 验证
+            if (empty($totpCode)) {
+                // 返回需要 TOTP 的标志
+                $this->success([
+                    'require_totp' => true,
+                    'message' => '请输入双因素认证码'
+                ], '需要双因素认证');
+                return;
+            }
+            
+            // 验证 TOTP 码
+            if (!$this->verifyTotpCode($totpSecret, $totpCode)) {
+                Logger::logSecurityEvent('TOTP 验证码错误');
+                $this->error('双因素认证码错误', 401);
+                return;
+            }
+        }
+        
+        // 登录成功
+        $_SESSION['logged_in'] = true;
+        $_SESSION['login_time'] = time();
+        session_regenerate_id(true); // 防止会话固定攻击
+        
+        $this->audit('login', 'user', null, ['ip' => $this->getClientIp()]);
+        Logger::logInfo('用户登录成功');
+        
+        $this->success([
+            'csrf_token' => $this->security->getCsrfToken()
+        ], '登录成功');
+    }
+    
+    /**
+     * 验证 TOTP 代码
+     */
+    private function verifyTotpCode(string $secret, string $code, int $window = 1): bool
+    {
+        if (strlen($code) !== 6 || !ctype_digit($code)) {
+            return false;
+        }
+        
+        $timestamp = time();
+        $period = 30;
+        
+        // 检查当前及前后 window 个时间窗口
+        for ($i = -$window; $i <= $window; $i++) {
+            $checkTime = $timestamp + ($i * $period);
+            $expectedCode = $this->generateTotpCode($secret, $checkTime);
+            if (hash_equals($expectedCode, $code)) {
+                return true;
+            }
+        }
+        
+        return false;
+    }
+    
+    /**
+     * 生成 TOTP 代码
+     */
+    private function generateTotpCode(string $secret, int $timestamp): string
+    {
+        $period = 30;
+        $digits = 6;
+        
+        $counter = floor($timestamp / $period);
+        $counterBytes = pack('J', $counter);
+        
+        $decodedSecret = $this->base32Decode($secret);
+        $hash = hash_hmac('sha1', $counterBytes, $decodedSecret, true);
+        
+        $offset = ord($hash[strlen($hash) - 1]) & 0x0F;
+        $code = (
+            ((ord($hash[$offset]) & 0x7F) << 24) |
+            ((ord($hash[$offset + 1]) & 0xFF) << 16) |
+            ((ord($hash[$offset + 2]) & 0xFF) << 8) |
+            (ord($hash[$offset + 3]) & 0xFF)
+        ) % pow(10, $digits);
+        
+        return str_pad($code, $digits, '0', STR_PAD_LEFT);
+    }
+    
+    /**
+     * Base32 解码
+     */
+    private function base32Decode(string $input): string
+    {
+        $alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
+        $input = strtoupper($input);
+        $buffer = 0;
+        $bitsLeft = 0;
+        $output = '';
+        
+        for ($i = 0; $i < strlen($input); $i++) {
+            $val = strpos($alphabet, $input[$i]);
+            if ($val === false) continue;
+            
+            $buffer = ($buffer << 5) | $val;
+            $bitsLeft += 5;
+            
+            if ($bitsLeft >= 8) {
+                $bitsLeft -= 8;
+                $output .= chr(($buffer >> $bitsLeft) & 0xFF);
+            }
+        }
+        
+        return $output;
     }
     
     /**

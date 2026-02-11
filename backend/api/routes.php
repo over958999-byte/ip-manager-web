@@ -114,6 +114,9 @@ return function($router) {
     $router->delete('/system/stats', 'SystemController@clearStats');
     $router->get('/system/export', 'SystemController@export');
     $router->post('/system/import', 'SystemController@import');
+    $router->get('/system/health', 'SystemController@health');
+    $router->get('/system/metrics', 'SystemController@metrics');
+    $router->get('/system/cache-stats', 'SystemController@cacheStats');
     
     // ==================== API Token 管理 ====================
     $router->get('/api-tokens', 'ApiTokenController@list');

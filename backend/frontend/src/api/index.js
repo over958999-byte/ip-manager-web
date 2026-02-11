@@ -231,7 +231,7 @@ const api = {
   },
   
   // 登录相关
-  login: (username, password) => request.post('?action=login', { username, password }),
+  login: (username, password, totpCode = '') => request.post('?action=login', { username, password, totp_code: totpCode }),
   logout: () => request.post('?action=logout'),
   checkLogin: () => request.get('?action=check_login'),
   
@@ -394,5 +394,10 @@ export const restoreBackup = (filename) => request.post('?action=backup_restore'
 export const downloadBackup = (filename) => 
   request.get('?action=backup_download', { params: { filename }, responseType: 'blob' })
 export const deleteBackup = (filename) => request.post('?action=backup_delete', { filename })
+
+// ==================== 系统监控 API ====================
+export const getSystemHealth = () => request.get('?action=system_health')
+export const getPrometheusMetrics = () => request.get('?action=prometheus_metrics')
+export const getCacheStats = () => request.get('?action=cache_stats')
 
 export default api

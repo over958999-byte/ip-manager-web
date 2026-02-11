@@ -6,9 +6,9 @@ export const useUserStore = defineStore('user', () => {
   const isLoggedIn = ref(false)
   const username = ref('')
 
-  async function login(user, password) {
-    const res = await api.login(user, password)
-    if (res.success) {
+  async function login(user, password, totpCode = '') {
+    const res = await api.login(user, password, totpCode)
+    if (res.success && !res.data?.require_totp) {
       isLoggedIn.value = true
       username.value = user || 'admin'
     }

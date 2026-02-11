@@ -139,11 +139,84 @@
         </el-card>
       </el-col>
     </el-row>
+    
+    <!-- 系统监控卡片 -->
+    <el-row :gutter="20" style="margin-top: 20px;">
+      <el-col :span="8">
+        <el-card>
+          <template #header>
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+              <span>🗄️ 缓存状态</span>
+              <el-tag :type="cacheStatus.enabled ? 'success' : 'info'" size="small">
+                {{ cacheStatus.type || '未启用' }}
+              </el-tag>
+            </div>
+          </template>
+          <el-descriptions :column="1" border size="small">
+            <el-descriptions-item label="缓存类型">{{ cacheStatus.type || '-' }}</el-descriptions-item>
+            <el-descriptions-item label="命中率">
+              <el-progress 
+                :percentage="cacheStatus.hit_rate || 0" 
+                :color="cacheStatus.hit_rate > 80 ? '#67c23a' : '#e6a23c'"
+                :stroke-width="10"
+              />
+            </el-descriptions-item>
+            <el-descriptions-item label="内存使用" v-if="cacheStatus.memory_used">
+              {{ formatBytes(cacheStatus.memory_used) }} / {{ formatBytes(cacheStatus.memory_total) }}
+            </el-descriptions-item>
+            <el-descriptions-item label="Key 数量">{{ cacheStatus.keys || 0 }}</el-descriptions-item>
+          </el-descriptions>
+        </el-card>
+      </el-col>
+      
+      <el-col :span="8">
+        <el-card>
+          <template #header>
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+              <span>🗃️ 数据库状态</span>
+              <el-tag :type="dbStatus.connected ? 'success' : 'danger'" size="small">
+                {{ dbStatus.connected ? '正常' : '异常' }}
+              </el-tag>
+            </div>
+          </template>
+          <el-descriptions :column="1" border size="small">
+            <el-descriptions-item label="连接池">{{ dbStatus.connections || 0 }} 个连接</el-descriptions-item>
+            <el-descriptions-item label="查询数/分钟">{{ dbStatus.queries_per_min || 0 }}</el-descriptions-item>
+            <el-descriptions-item label="慢查询">{{ dbStatus.slow_queries || 0 }}</el-descriptions-item>
+            <el-descriptions-item label="数据库大小">{{ formatBytes(dbStatus.size || 0) }}</el-descriptions-item>
+          </el-descriptions>
+        </el-card>
+      </el-col>
+      
+      <el-col :span="8">
+        <el-card>
+          <template #header>
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+              <span>⚡ 系统性能</span>
+              <el-button type="primary" link size="small" @click="refreshMetrics">
+                <el-icon><Refresh /></el-icon> 刷新
+              </el-button>
+            </div>
+          </template>
+          <el-descriptions :column="1" border size="small">
+            <el-descriptions-item label="平均响应时间">{{ systemMetrics.avg_response_time || 0 }}ms</el-descriptions-item>
+            <el-descriptions-item label="请求数/分钟">{{ systemMetrics.requests_per_min || 0 }}</el-descriptions-item>
+            <el-descriptions-item label="错误率">
+              <el-tag :type="(systemMetrics.error_rate || 0) < 1 ? 'success' : 'danger'" size="small">
+                {{ (systemMetrics.error_rate || 0).toFixed(2) }}%
+              </el-tag>
+            </el-descriptions-item>
+            <el-descriptions-item label="服务运行时间">{{ systemMetrics.uptime || '-' }}</el-descriptions-item>
+          </el-descriptions>
+        </el-card>
+      </el-col>
+    </el-row>
   </div>
 </template>
 
 <script setup>
 import { ref, reactive, onMounted } from 'vue'
+import { Refresh } from '@element-plus/icons-vue'
 import * as api from '../api'
 
 const loading = ref(false)
@@ -160,6 +233,31 @@ const recentShortLinks = ref([])
 const recentIpRules = ref([])
 const blockStats = ref({})
 const recentLogs = ref([])
+
+// 系统监控数据
+const cacheStatus = ref({
+  enabled: false,
+  type: null,
+  hit_rate: 0,
+  memory_used: 0,
+  memory_total: 0,
+  keys: 0
+})
+
+const dbStatus = ref({
+  connected: false,
+  connections: 0,
+  queries_per_min: 0,
+  slow_queries: 0,
+  size: 0
+})
+
+const systemMetrics = ref({
+  avg_response_time: 0,
+  requests_per_min: 0,
+  error_rate: 0,
+  uptime: '-'
+})
 
 const reasonLabels = {
   'rate_limit': '频率限制',
@@ -187,6 +285,14 @@ const formatTime = (timeStr) => {
   if (!timeStr) return ''
   // 只显示时间部分
   return timeStr.split(' ')[1] || timeStr
+}
+
+const formatBytes = (bytes) => {
+  if (!bytes || bytes === 0) return '0 B'
+  const k = 1024
+  const sizes = ['B', 'KB', 'MB', 'GB']
+  const i = Math.floor(Math.log(bytes) / Math.log(k))
+  return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i]
 }
 
 const loadData = async () => {
@@ -218,9 +324,63 @@ const loadData = async () => {
       blockStats.value = antibotRes.stats?.by_reason || {}
       recentLogs.value = (antibotRes.stats?.recent_logs || []).slice(0, 5)
     }
+    
+    // 加载系统监控数据
+    await loadSystemMetrics()
   } finally {
     loading.value = false
   }
+}
+
+const loadSystemMetrics = async () => {
+  try {
+    // 获取系统健康状态
+    const healthRes = await api.getSystemHealth()
+    if (healthRes.success && healthRes.data) {
+      const data = healthRes.data
+      
+      // 缓存状态
+      if (data.cache) {
+        cacheStatus.value = {
+          enabled: data.cache.enabled || false,
+          type: data.cache.type || null,
+          hit_rate: data.cache.hit_rate || 0,
+          memory_used: data.cache.memory_used || 0,
+          memory_total: data.cache.memory_total || 0,
+          keys: data.cache.keys || 0
+        }
+      }
+      
+      // 数据库状态
+      if (data.database) {
+        dbStatus.value = {
+          connected: data.database.connected || false,
+          connections: data.database.connections || 0,
+          queries_per_min: data.database.queries_per_min || 0,
+          slow_queries: data.database.slow_queries || 0,
+          size: data.database.size || 0
+        }
+      }
+      
+      // 系统性能
+      if (data.metrics) {
+        systemMetrics.value = {
+          avg_response_time: data.metrics.avg_response_time || 0,
+          requests_per_min: data.metrics.requests_per_min || 0,
+          error_rate: data.metrics.error_rate || 0,
+          uptime: data.metrics.uptime || data.uptime || '-'
+        }
+      } else {
+        systemMetrics.value.uptime = data.uptime || '-'
+      }
+    }
+  } catch (e) {
+    console.warn('Failed to load system metrics:', e)
+  }
+}
+
+const refreshMetrics = () => {
+  loadSystemMetrics()
 }
 
 onMounted(() => {

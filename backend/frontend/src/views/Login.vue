@@ -79,6 +79,23 @@
             </el-input>
           </el-form-item>
           
+          <!-- TOTP 验证码输入框 -->
+          <el-form-item v-if="requireTotp" prop="totpCode">
+            <el-input
+              v-model="form.totpCode"
+              placeholder="双因素认证码 (6位数字)"
+              size="large"
+              maxlength="6"
+              class="custom-input totp-input"
+              @keyup.enter="handleLogin"
+            >
+              <template #prefix>
+                <el-icon class="input-icon"><Key /></el-icon>
+              </template>
+            </el-input>
+            <div class="totp-hint">请打开 Authenticator App 输入6位验证码</div>
+          </el-form-item>
+          
           <div class="form-options">
             <el-checkbox v-model="form.remember">记住我</el-checkbox>
             <a href="javascript:;" class="forgot-link">忘记密码？</a>
@@ -111,16 +128,18 @@ import { ref, reactive } from 'vue'
 import { useRouter } from 'vue-router'
 import { useUserStore } from '../stores/user'
 import { ElMessage } from 'element-plus'
-import { User, Lock } from '@element-plus/icons-vue'
+import { User, Lock, Key } from '@element-plus/icons-vue'
 
 const router = useRouter()
 const userStore = useUserStore()
 const formRef = ref(null)
 const loading = ref(false)
+const requireTotp = ref(false)
 
 const form = reactive({
   username: '',
   password: '',
+  totpCode: '',
   remember: false
 })
 
@@ -140,10 +159,16 @@ const handleLogin = async () => {
     if (valid) {
       loading.value = true
       try {
-        const res = await userStore.login(form.username, form.password)
+        const res = await userStore.login(form.username, form.password, form.totpCode)
         if (res.success) {
-          ElMessage.success('登录成功，欢迎回来！')
-          router.push('/dashboard')
+          // 检查是否需要 TOTP 验证
+          if (res.data?.require_totp) {
+            requireTotp.value = true
+            ElMessage.warning('请输入双因素认证码')
+          } else {
+            ElMessage.success('登录成功，欢迎回来！')
+            router.push('/dashboard')
+          }
         } else {
           ElMessage.error(res.message || '用户名或密码错误')
         }
@@ -411,6 +436,21 @@ const handleLogin = async () => {
 
 .login-btn:active {
   transform: translateY(0);
+}
+
+/* TOTP 输入框样式 */
+.totp-input :deep(.el-input__inner) {
+  letter-spacing: 8px;
+  font-size: 20px;
+  text-align: center;
+  font-family: 'Courier New', monospace;
+}
+
+.totp-hint {
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.6);
+  margin-top: 8px;
+  text-align: center;
 }
 
 .login-footer {
