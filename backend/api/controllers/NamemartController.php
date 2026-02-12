@@ -199,33 +199,39 @@ class NamemartController extends BaseController
         $this->requireLogin();
         
         // 前端发送的字段名与后端需要的字段名映射
-        $phone = $this->param('tel') ?: $this->param('phone');
-        $address = $this->param('street') ?: $this->param('address');
-        $state = $this->param('province') ?: $this->param('state');
-        $zipCode = $this->param('post_code') ?: $this->param('zip_code');
-        $country = $this->param('country_code') ?: $this->param('country');
+        $tel = $this->param('tel') ?: $this->param('phone');
+        $street = $this->param('street') ?: $this->param('address');
+        $province = $this->param('province') ?: $this->param('state');
+        $postCode = $this->param('post_code') ?: $this->param('zip_code');
+        $countryCode = $this->param('country_code') ?: $this->param('country');
+        $telAreaCode = $this->param('tel_area_code', '65');
+        $faxAreaCode = $this->param('fax_area_code') ?: $telAreaCode;
+        $fax = $this->param('fax') ?: $tel;
         
-        if (empty($phone)) {
+        if (empty($tel)) {
             $this->error('电话不能为空');
         }
-        if (empty($address)) {
+        if (empty($street)) {
             $this->error('地址不能为空');
         }
         
+        // 按照 Namemart API 文档构建请求数据
         $data = [
+            'template_name' => $this->param('template_name', 'DefaultTemplate'),
+            'contact_type' => (int)$this->param('contact_type', 0),
+            'org' => $this->param('org', ''),
             'first_name' => $this->requiredParam('first_name', '名不能为空'),
             'last_name' => $this->requiredParam('last_name', '姓不能为空'),
-            'email' => $this->requiredParam('email', '邮箱不能为空'),
-            'phone' => $phone,
-            'tel_area_code' => $this->param('tel_area_code', ''),
-            'address' => $address,
+            'country_code' => $countryCode ?: 'SG',
+            'province' => $province ?: '',
             'city' => $this->requiredParam('city', '城市不能为空'),
-            'province' => $state ?: '',
-            'country_code' => $country ?: 'US',
-            'post_code' => $zipCode ?: '',
-            'org' => $this->param('org', ''),
-            'template_name' => $this->param('template_name', 'DefaultTemplate'),
-            'contact_type' => $this->param('contact_type', 0)
+            'street' => $street,
+            'post_code' => $postCode ?: '',
+            'tel_area_code' => $telAreaCode,
+            'tel' => $tel,
+            'fax_area_code' => $faxAreaCode,
+            'fax' => $fax,
+            'email' => $this->requiredParam('email', '邮箱不能为空'),
         ];
         
         try {
