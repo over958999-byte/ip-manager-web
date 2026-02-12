@@ -1587,20 +1587,50 @@ DO DELETE FROM metrics_snapshot WHERE recorded_at < DATE_SUB(NOW(), INTERVAL 7 D
 -- 第十七部分: 性能优化索引
 -- =====================================================
 
+-- 注意: 使用存储过程安全添加索引，避免重复创建错误
+DELIMITER //
+
+DROP PROCEDURE IF EXISTS safe_add_index//
+CREATE PROCEDURE safe_add_index(
+    IN p_table VARCHAR(64),
+    IN p_index VARCHAR(64),
+    IN p_columns VARCHAR(255)
+)
+BEGIN
+    DECLARE index_exists INT DEFAULT 0;
+    
+    SELECT COUNT(*) INTO index_exists
+    FROM information_schema.STATISTICS
+    WHERE TABLE_SCHEMA = DATABASE()
+      AND TABLE_NAME = p_table
+      AND INDEX_NAME = p_index;
+    
+    IF index_exists = 0 THEN
+        SET @sql = CONCAT('ALTER TABLE ', p_table, ' ADD INDEX ', p_index, ' (', p_columns, ')');
+        PREPARE stmt FROM @sql;
+        EXECUTE stmt;
+        DEALLOCATE PREPARE stmt;
+    END IF;
+END//
+
+DELIMITER ;
+
 -- Dashboard 查询优化索引
-ALTER TABLE jump_logs ADD INDEX IF NOT EXISTS idx_visited_device (visited_at, device_type);
-ALTER TABLE jump_logs ADD INDEX IF NOT EXISTS idx_visited_country (visited_at, country_code);
-ALTER TABLE jump_logs ADD INDEX IF NOT EXISTS idx_date_rule (DATE(visited_at), rule_id);
+CALL safe_add_index('jump_logs', 'idx_visited_device', 'visited_at, device_type');
+CALL safe_add_index('jump_logs', 'idx_visited_country', 'visited_at, country_code');
 
 -- 审计日志查询优化
-ALTER TABLE audit_logs ADD INDEX IF NOT EXISTS idx_created_action (created_at, action);
-ALTER TABLE audit_logs ADD INDEX IF NOT EXISTS idx_user_created (user_id, created_at);
+CALL safe_add_index('audit_logs', 'idx_created_action', 'created_at, action');
+CALL safe_add_index('audit_logs', 'idx_user_created', 'user_id, created_at');
 
 -- API Token 查询优化
-ALTER TABLE api_tokens ADD INDEX IF NOT EXISTS idx_enabled_expires (enabled, expires_at);
+CALL safe_add_index('api_tokens', 'idx_enabled_expires', 'enabled, expires_at');
 
 -- 短链接查询优化  
-ALTER TABLE short_links ADD INDEX IF NOT EXISTS idx_code_enabled (code, enabled);
+CALL safe_add_index('short_links', 'idx_code_enabled', 'code, enabled');
+
+-- 清理临时存储过程
+DROP PROCEDURE IF EXISTS safe_add_index;
 
 -- =====================================================
 -- 第十八部分: 读写分离健康检查视图 (来自 migrate_database_v2.sql)
