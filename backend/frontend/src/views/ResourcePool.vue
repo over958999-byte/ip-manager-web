@@ -1560,8 +1560,8 @@ const cfBatchDialog = reactive({
 const loadCfConfig = async () => {
   try {
     const res = await cfGetConfig()
-    if (res.success && res.config) {
-      Object.assign(cfConfig, res.config)
+    if (res.success && res.data?.config) {
+      Object.assign(cfConfig, res.data.config)
     }
   } catch {}
 }
@@ -1743,8 +1743,8 @@ const nmContactDialog = reactive({
 const loadNmConfig = async () => {
   try {
     const res = await nmGetConfig()
-    if (res.success && res.config) {
-      Object.assign(nmConfig, res.config)
+    if (res.success && res.data?.config) {
+      Object.assign(nmConfig, res.data.config)
     }
   } catch {}
 }

@@ -1,60 +1,48 @@
--- =====================================================
--- IP管理器 - 完整数据库安装脚本
--- 版本: 3.0 (合并版)
--- 说明: 包含所有表结构、索引、存储过程、初始数据
--- 合并自: install.sql, migrate_v2.sql, migrate_ip_blacklist.sql, migrate_performance.sql
--- =====================================================
+-- ==============================================
+-- IP管理器数据库 - 完整合并版
+-- 版本: 4.0
+-- 合并自: database_full.sql + migrate_database_v2.sql
+-- ==============================================
+-- 此脚本包含:
+-- 1. 完整数据库结构
+-- 2. 初始数据
+-- 3. 存储过程
+-- 4. 定时事件
+-- 5. 性能优化配置
+-- ==============================================
 
 SET NAMES utf8mb4;
 SET FOREIGN_KEY_CHECKS = 0;
-SET SQL_MODE = "NO_AUTO_VALUE_ON_ZERO";
-SET time_zone = "+00:00";
 
 -- =====================================================
--- 创建数据库
--- =====================================================
-CREATE DATABASE IF NOT EXISTS ip_manager 
-    DEFAULT CHARACTER SET utf8mb4 
-    COLLATE utf8mb4_unicode_ci;
-
-USE ip_manager;
-
--- =====================================================
--- 第一部分: 核心配置表
+-- 第一部分: 基础配置表
 -- =====================================================
 
 -- 系统配置表
 CREATE TABLE IF NOT EXISTS config (
     id INT AUTO_INCREMENT PRIMARY KEY,
-    `key` VARCHAR(100) NOT NULL UNIQUE,
+    `key` VARCHAR(100) NOT NULL,
     `value` TEXT,
     description VARCHAR(255),
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    INDEX idx_key (`key`)
+    UNIQUE KEY unique_key (`key`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
--- 初始配置
+-- 配置默认值
 INSERT INTO config (`key`, `value`, description) VALUES
-('cf_api_token', '', 'Cloudflare API Token'),
-('cf_zone_id', '', 'Cloudflare Zone ID'),
-('max_ips_per_pool', '1000', '每个资源池最大IP数量'),
-('default_ttl', '3600', '默认缓存TTL(秒)'),
-('redirect_mode', 'http', '跳转模式: http/js'),
+('site_name', 'IP管理器', '站点名称'),
+('site_url', 'http://localhost', '站点URL'),
+('api_rate_limit', '100', '每分钟API请求限制'),
 ('log_retention_days', '30', '日志保留天数'),
-('anti_bot_enabled', '1', '是否启用反爬'),
-('rate_limit_per_minute', '60', '每分钟请求限制'),
-('cache_driver', 'redis', '缓存驱动: apcu/redis/file'),
-('geoip_provider', 'ipinfo', 'GeoIP提供商: ipinfo/maxmind/ip2location'),
-('enable_prometheus', '0', '是否启用Prometheus监控'),
-('enable_audit_log', '1', '是否启用审计日志'),
-('session_timeout', '3600', '会话超时时间(秒)'),
-('max_login_attempts', '5', '最大登录尝试次数'),
-('password_min_length', '8', '密码最小长度'),
-('enable_two_factor', '0', '是否启用两步验证'),
-('api_rate_limit', '100', 'API每分钟限制'),
-('webhook_timeout', '30', 'Webhook超时时间(秒)'),
-('backup_retention_days', '7', '备份保留天数'),
+('enable_geoip', '1', '启用GeoIP查询'),
+('enable_cloudflare', '0', '启用Cloudflare集成'),
+('enable_webhooks', '1', '启用Webhook通知'),
+('session_lifetime', '86400', '会话有效期(秒)'),
+('max_upload_size', '10485760', '最大上传大小(字节)'),
+('default_redirect_type', '302', '默认跳转类型'),
+('enable_antibot', '1', '启用反爬虫'),
+('enable_threat_intel', '0', '启用威胁情报'),
 ('maintenance_mode', '0', '维护模式')
 ON DUPLICATE KEY UPDATE `key`=`key`;
 
@@ -64,168 +52,177 @@ ON DUPLICATE KEY UPDATE `key`=`key`;
 
 -- IP国家缓存表
 CREATE TABLE IF NOT EXISTS ip_country_cache (
-    id INT AUTO_INCREMENT PRIMARY KEY,
-    ip VARCHAR(45) NOT NULL,
+    ip VARCHAR(45) NOT NULL PRIMARY KEY,
+    country VARCHAR(100) COMMENT '国家名称(兼容字段)',
     country_code VARCHAR(2),
     country_name VARCHAR(100),
     region VARCHAR(100),
     city VARCHAR(100),
     isp VARCHAR(255),
-    org VARCHAR(255),
     asn VARCHAR(50),
-    is_proxy TINYINT(1) DEFAULT 0,
-    is_vpn TINYINT(1) DEFAULT 0,
-    is_tor TINYINT(1) DEFAULT 0,
-    is_datacenter TINYINT(1) DEFAULT 0,
-    threat_level ENUM('low', 'medium', 'high', 'critical') DEFAULT 'low',
+    cached_at INT COMMENT '缓存时间戳(兼容字段)',
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    UNIQUE KEY unique_ip (ip),
     INDEX idx_country (country_code),
-    INDEX idx_threat (threat_level),
-    INDEX idx_updated (updated_at),
-    INDEX idx_ip_country (ip, country_code),
-    INDEX idx_proxy_check (is_proxy, is_vpn, is_tor, is_datacenter)
+    INDEX idx_updated (updated_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- IP黑名单表
 CREATE TABLE IF NOT EXISTS ip_blacklist (
     id INT AUTO_INCREMENT PRIMARY KEY,
     ip_cidr VARCHAR(50) NOT NULL COMMENT 'IP或CIDR',
-    ip_start INT UNSIGNED NOT NULL COMMENT 'IP范围起始',
-    ip_end INT UNSIGNED NOT NULL COMMENT 'IP范围结束',
-    type ENUM('bot', 'malicious', 'custom') DEFAULT 'custom' COMMENT '类型',
-    category VARCHAR(50) DEFAULT NULL COMMENT '分类',
-    name VARCHAR(100) DEFAULT NULL COMMENT '名称',
-    description TEXT COMMENT '说明',
-    source VARCHAR(50) DEFAULT 'manual' COMMENT '数据来源: manual/threat_intel/auto',
-    enabled TINYINT(1) DEFAULT 1 COMMENT '是否启用',
-    hit_count INT UNSIGNED DEFAULT 0 COMMENT '命中次数',
+    ip_start BIGINT UNSIGNED COMMENT '起始IP(数值)',
+    ip_end BIGINT UNSIGNED COMMENT '结束IP(数值)',
+    type ENUM('bot', 'malicious', 'spam', 'custom') DEFAULT 'custom',
+    category VARCHAR(50) COMMENT '分类: google, baidu, bing等',
+    name VARCHAR(100) COMMENT '名称描述',
+    source VARCHAR(100) COMMENT '来源',
+    hit_count INT DEFAULT 0 COMMENT '命中次数',
     last_hit_at TIMESTAMP NULL COMMENT '最后命中时间',
-    expires_at TIMESTAMP NULL COMMENT '过期时间',
+    enabled TINYINT(1) DEFAULT 1,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    UNIQUE KEY unique_cidr (ip_cidr),
     INDEX idx_ip_range (ip_start, ip_end),
-    INDEX idx_type (type),
     INDEX idx_category (category),
-    INDEX idx_enabled (enabled),
-    INDEX idx_source (source),
-    INDEX idx_expires (expires_at)
+    INDEX idx_type (type),
+    INDEX idx_enabled (enabled)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- IP威胁情报表
+CREATE TABLE IF NOT EXISTS ip_threats (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    ip VARCHAR(45) NOT NULL,
+    threat_type ENUM('malware', 'spam', 'botnet', 'proxy', 'tor', 'vpn', 'scanner') NOT NULL,
+    threat_score INT DEFAULT 0 COMMENT '威胁评分 0-100',
+    source VARCHAR(100) COMMENT '来源',
+    first_seen TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    last_seen TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    hit_count INT DEFAULT 1,
+    metadata JSON,
+    UNIQUE KEY unique_ip_type (ip, threat_type),
+    INDEX idx_score (threat_score),
+    INDEX idx_type (threat_type)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- 威胁情报源配置
+CREATE TABLE IF NOT EXISTS threat_intel_sources (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    name VARCHAR(100) NOT NULL,
+    type ENUM('ip', 'url', 'domain', 'hash') DEFAULT 'ip',
+    url TEXT,
+    format ENUM('plain', 'csv', 'json') DEFAULT 'plain',
+    enabled TINYINT(1) DEFAULT 1,
+    update_interval INT DEFAULT 86400 COMMENT '更新间隔(秒)',
+    last_update TIMESTAMP NULL,
+    last_count INT DEFAULT 0,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE KEY unique_name (name)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- =====================================================
--- 第三部分: Cloudflare域名管理
+-- 第三部分: Cloudflare域名表
 -- =====================================================
 
--- CF域名表
 CREATE TABLE IF NOT EXISTS cf_domains (
     id INT AUTO_INCREMENT PRIMARY KEY,
     domain VARCHAR(255) NOT NULL,
     zone_id VARCHAR(50),
-    dns_record_id VARCHAR(50),
-    target_ip VARCHAR(45),
-    status ENUM('active', 'pending', 'inactive', 'error') DEFAULT 'pending',
-    ssl_status ENUM('none', 'flexible', 'full', 'strict') DEFAULT 'flexible',
-    proxy_status TINYINT(1) DEFAULT 1,
-    error_message TEXT,
-    last_check_at TIMESTAMP NULL,
+    status ENUM('active', 'pending', 'inactive') DEFAULT 'pending',
+    ssl_status VARCHAR(50),
+    dns_records JSON,
+    settings JSON,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     UNIQUE KEY unique_domain (domain),
-    INDEX idx_status (status),
-    INDEX idx_zone (zone_id)
+    INDEX idx_status (status)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- =====================================================
--- 第四部分: 跳转规则系统
+-- 第四部分: 跳转系统表
 -- =====================================================
 
 -- 跳转域名表
 CREATE TABLE IF NOT EXISTS jump_domains (
     id INT AUTO_INCREMENT PRIMARY KEY,
-    domain VARCHAR(255) NOT NULL COMMENT '域名',
-    name VARCHAR(100) COMMENT '备注名称',
-    status ENUM('active', 'inactive', 'banned') DEFAULT 'active',
+    domain VARCHAR(255) NOT NULL,
+    name VARCHAR(100) COMMENT '显示名称',
+    description VARCHAR(500),
     ssl_enabled TINYINT(1) DEFAULT 0,
+    is_default TINYINT(1) DEFAULT 0 COMMENT '是否默认域名',
+    use_count INT DEFAULT 0 COMMENT '使用次数',
+    safety_status ENUM('safe', 'warning', 'danger', 'unknown') DEFAULT 'unknown',
+    status ENUM('active', 'inactive', 'pending') DEFAULT 'active',
+    enabled TINYINT(1) DEFAULT 1,
+    cf_zone_id VARCHAR(50),
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     UNIQUE KEY unique_domain (domain),
     INDEX idx_status (status),
-    INDEX idx_domain_status (domain, status)
+    INDEX idx_enabled (enabled),
+    INDEX idx_default (is_default)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
--- 跳转规则分组表
+-- 跳转分组表
 CREATE TABLE IF NOT EXISTS jump_groups (
     id INT AUTO_INCREMENT PRIMARY KEY,
-    name VARCHAR(100) NOT NULL COMMENT '分组名称',
-    description TEXT COMMENT '描述',
-    priority INT DEFAULT 0 COMMENT '优先级',
-    status ENUM('active', 'inactive') DEFAULT 'active',
+    tag VARCHAR(50) NOT NULL COMMENT '分组标识',
+    name VARCHAR(100) NOT NULL,
+    description VARCHAR(500),
+    rule_count INT DEFAULT 0 COMMENT '规则数量',
+    sort_order INT DEFAULT 0,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    INDEX idx_priority (priority),
-    INDEX idx_status (status)
+    UNIQUE KEY unique_tag (tag),
+    UNIQUE KEY unique_name (name)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- 默认分组
+INSERT INTO jump_groups (tag, name, description) VALUES ('default', '默认分组', '默认分组') ON DUPLICATE KEY UPDATE tag=tag;
 
 -- 跳转规则表
 CREATE TABLE IF NOT EXISTS jump_rules (
     id INT AUTO_INCREMENT PRIMARY KEY,
-    group_id INT DEFAULT NULL COMMENT '分组ID',
-    name VARCHAR(100) NOT NULL COMMENT '规则名称',
-    source_domain VARCHAR(255) NOT NULL COMMENT '来源域名',
-    source_path VARCHAR(500) DEFAULT '/' COMMENT '来源路径',
-    target_url TEXT NOT NULL COMMENT '目标URL',
-    countries VARCHAR(500) DEFAULT '' COMMENT '允许的国家代码,逗号分隔',
-    excluded_countries VARCHAR(500) DEFAULT '' COMMENT '排除的国家代码',
-    redirect_type ENUM('301', '302', '307', '308', 'js', 'meta', 'iframe') DEFAULT '302',
-    match_mode ENUM('exact', 'prefix', 'regex', 'wildcard') DEFAULT 'exact',
-    priority INT DEFAULT 0 COMMENT '优先级,数字越大越优先',
-    weight INT DEFAULT 100 COMMENT '权重(用于A/B测试)',
+    name VARCHAR(100) NOT NULL,
+    title VARCHAR(255) COMMENT '标题',
+    note TEXT COMMENT '备注',
+    domain_id INT NOT NULL,
+    group_id INT,
+    group_tag VARCHAR(50) DEFAULT 'default' COMMENT '分组标识',
+    path VARCHAR(500) DEFAULT '/',
+    match_key VARCHAR(100) COMMENT '匹配键(短链接code等)',
+    rule_type ENUM('redirect', 'proxy', 'ab_test', 'weight', 'geo', 'device', 'time', 'referer', 'code') DEFAULT 'redirect',
+    target_url TEXT NOT NULL,
+    targets JSON COMMENT '多目标配置',
+    redirect_type ENUM('301', '302', '307', '308') DEFAULT '302',
+    countries VARCHAR(500) COMMENT '国家代码,逗号分隔',
+    country_mode ENUM('include', 'exclude') DEFAULT 'include',
+    devices VARCHAR(100) COMMENT '设备类型',
+    time_rules JSON COMMENT '时间规则',
+    referer_rules JSON COMMENT 'Referer规则',
+    priority INT DEFAULT 0,
     status ENUM('active', 'inactive', 'testing') DEFAULT 'active',
-    
-    -- 时间控制
-    start_time TIMESTAMP NULL COMMENT '开始时间',
-    end_time TIMESTAMP NULL COMMENT '结束时间',
-    
-    -- 设备/浏览器过滤
-    device_types VARCHAR(100) DEFAULT '' COMMENT '设备类型: mobile,desktop,tablet',
-    browsers VARCHAR(200) DEFAULT '' COMMENT '浏览器: chrome,firefox,safari',
-    os_types VARCHAR(200) DEFAULT '' COMMENT '操作系统: windows,mac,ios,android',
-    
-    -- UA过滤
-    allowed_ua_patterns TEXT COMMENT '允许的UA正则',
-    blocked_ua_patterns TEXT COMMENT '阻止的UA正则',
-    
-    -- Referer过滤
-    allowed_referers TEXT COMMENT '允许的Referer',
-    blocked_referers TEXT COMMENT '阻止的Referer',
-    
-    -- IP过滤
-    allowed_ips TEXT COMMENT '允许的IP列表',
-    blocked_ips TEXT COMMENT '阻止的IP列表',
-    
-    -- 统计
-    visit_count INT UNSIGNED DEFAULT 0 COMMENT '访问次数',
-    unique_visitors INT UNSIGNED DEFAULT 0 COMMENT '独立访客',
-    last_visit_at TIMESTAMP NULL COMMENT '最后访问时间',
-    
-    -- 元数据
-    tags VARCHAR(500) DEFAULT '' COMMENT '标签',
-    notes TEXT COMMENT '备注',
-    created_by INT DEFAULT NULL COMMENT '创建者ID',
-    
+    total_clicks BIGINT DEFAULT 0,
+    visit_count BIGINT DEFAULT 0,
+    unique_visitors BIGINT DEFAULT 0,
+    last_visit_at TIMESTAMP NULL,
+    last_access_at TIMESTAMP NULL,
+    expire_type VARCHAR(20) DEFAULT 'permanent' COMMENT '过期类型',
+    expire_at TIMESTAMP NULL,
+    max_clicks INT DEFAULT NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    enabled TINYINT(1) DEFAULT 1,
     
-    INDEX idx_source (source_domain, source_path),
+    INDEX idx_domain (domain_id),
     INDEX idx_group (group_id),
+    INDEX idx_group_tag (group_tag),
     INDEX idx_status (status),
     INDEX idx_priority (priority DESC),
-    INDEX idx_domain_status_priority (source_domain, status, priority DESC),
-    INDEX idx_countries (countries(100)),
-    INDEX idx_time_range (start_time, end_time),
-    INDEX idx_created_at (created_at),
+    INDEX idx_path (path(100)),
+    INDEX idx_match_key (match_key),
+    INDEX idx_rule_type (rule_type),
+    INDEX idx_domain_path (domain_id, path(100)),
+    INDEX idx_enabled (enabled),
+    FOREIGN KEY (domain_id) REFERENCES jump_domains(id) ON DELETE CASCADE,
     FOREIGN KEY (group_id) REFERENCES jump_groups(id) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
@@ -233,10 +230,14 @@ CREATE TABLE IF NOT EXISTS jump_rules (
 CREATE TABLE IF NOT EXISTS jump_logs (
     id BIGINT AUTO_INCREMENT PRIMARY KEY,
     rule_id INT NOT NULL,
+    rule_type VARCHAR(50),
+    match_key VARCHAR(100),
     domain VARCHAR(255),
     path VARCHAR(500),
     target_url TEXT,
     ip VARCHAR(45),
+    visitor_ip VARCHAR(45),
+    country VARCHAR(100),
     country_code VARCHAR(2),
     user_agent TEXT,
     referer TEXT,
@@ -246,400 +247,352 @@ CREATE TABLE IF NOT EXISTS jump_logs (
     is_unique TINYINT(1) DEFAULT 0,
     response_time_ms INT DEFAULT 0,
     visited_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     
     INDEX idx_rule (rule_id),
     INDEX idx_visited (visited_at),
-    INDEX idx_ip (ip),
+    INDEX idx_created (created_at),
     INDEX idx_country (country_code),
-    INDEX idx_domain_visited (domain, visited_at),
-    INDEX idx_rule_visited (rule_id, visited_at)
+    INDEX idx_device (device_type),
+    INDEX idx_rule_visited (rule_id, visited_at),
+    INDEX idx_ip_rule (ip, rule_id),
+    INDEX idx_visitor_ip (visitor_ip)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
--- 跳转UV统计表
-CREATE TABLE IF NOT EXISTS jump_uv (
+-- 唯一访客表(UV统计优化)
+CREATE TABLE IF NOT EXISTS jump_unique_visitors (
     id BIGINT AUTO_INCREMENT PRIMARY KEY,
     rule_id INT NOT NULL,
-    visitor_hash VARCHAR(64) NOT NULL COMMENT 'IP+UA的哈希',
+    visitor_hash VARCHAR(64) NOT NULL COMMENT 'IP+UA的hash',
     date DATE NOT NULL,
-    visit_count INT DEFAULT 1,
     first_visit_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    last_visit_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     
     UNIQUE KEY unique_visitor (rule_id, visitor_hash, date),
     INDEX idx_date (date),
     INDEX idx_rule_date (rule_id, date)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
--- 跳转每日统计表
-CREATE TABLE IF NOT EXISTS jump_daily_stats (
+-- 跳转统计表(按规则按天)
+CREATE TABLE IF NOT EXISTS jump_stats (
     id INT AUTO_INCREMENT PRIMARY KEY,
     rule_id INT NOT NULL,
     date DATE NOT NULL,
     pv INT DEFAULT 0,
     uv INT DEFAULT 0,
-    country_stats JSON COMMENT '国家统计',
-    device_stats JSON COMMENT '设备统计',
-    referer_stats JSON COMMENT '来源统计',
-    hourly_stats JSON COMMENT '小时统计',
+    countries JSON,
+    devices JSON,
+    browsers JSON,
+    referers JSON,
+    hours JSON COMMENT '24小时分布',
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     
     UNIQUE KEY unique_stat (rule_id, date),
-    INDEX idx_date (date)
+    INDEX idx_date (date),
+    INDEX idx_rule_date (rule_id, date)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
--- 短链接表
+-- =====================================================
+-- 第五部分: 短链接表
+-- =====================================================
+
 CREATE TABLE IF NOT EXISTS short_links (
     id INT AUTO_INCREMENT PRIMARY KEY,
-    code VARCHAR(50) NOT NULL COMMENT '短码',
-    original_url TEXT NOT NULL COMMENT '原始URL',
-    domain VARCHAR(255) DEFAULT NULL COMMENT '绑定域名',
-    group_tag VARCHAR(100) DEFAULT NULL COMMENT '分组标签',
-    
-    -- 跳转设置
-    redirect_type ENUM('301', '302', '307', 'js', 'meta') DEFAULT '302',
-    
-    -- 过滤条件
-    countries VARCHAR(500) DEFAULT '' COMMENT '允许国家',
-    excluded_countries VARCHAR(500) DEFAULT '' COMMENT '排除国家',
-    device_types VARCHAR(100) DEFAULT '' COMMENT '设备类型',
-    
-    -- 状态和统计
+    code VARCHAR(20) NOT NULL,
+    domain VARCHAR(255) COMMENT '绑定域名',
+    original_url TEXT NOT NULL,
+    title VARCHAR(255),
+    description TEXT,
+    group_tag VARCHAR(50) COMMENT '分组标签',
+    password VARCHAR(255),
+    expire_type VARCHAR(20) DEFAULT 'permanent',
+    expire_at TIMESTAMP NULL,
+    max_clicks INT,
+    click_count INT DEFAULT 0,
+    total_clicks INT DEFAULT 0,
+    unique_clicks INT DEFAULT 0,
     enabled TINYINT(1) DEFAULT 1,
-    total_clicks INT UNSIGNED DEFAULT 0,
-    unique_clicks INT UNSIGNED DEFAULT 0,
-    last_click_at TIMESTAMP NULL,
-    
-    -- 时间控制
-    expires_at TIMESTAMP NULL,
-    
-    -- 备注
-    note TEXT,
-    
+    user_id INT,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     
     UNIQUE KEY unique_code (code),
-    INDEX idx_domain (domain),
-    INDEX idx_group (group_tag),
-    INDEX idx_enabled (enabled)
+    INDEX idx_user (user_id),
+    INDEX idx_enabled (enabled),
+    INDEX idx_expire (expire_at),
+    INDEX idx_group (group_tag)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- 短链接访问日志
+CREATE TABLE IF NOT EXISTS short_link_logs (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    link_id INT NOT NULL,
+    ip VARCHAR(45),
+    country_code VARCHAR(2),
+    user_agent TEXT,
+    referer TEXT,
+    is_unique TINYINT(1) DEFAULT 0,
+    visited_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    
+    INDEX idx_link (link_id),
+    INDEX idx_visited (visited_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- =====================================================
--- 第五部分: 反爬/验证系统
+-- 第六部分: 反爬虫系统表
 -- =====================================================
 
 -- 反爬配置表
 CREATE TABLE IF NOT EXISTS antibot_configs (
     id INT AUTO_INCREMENT PRIMARY KEY,
-    domain VARCHAR(255) NOT NULL,
+    name VARCHAR(100) NOT NULL,
+    domain VARCHAR(255),
+    paths JSON COMMENT '需要保护的路径',
     enabled TINYINT(1) DEFAULT 1,
-    mode ENUM('off', 'monitor', 'challenge', 'block') DEFAULT 'challenge',
-    
-    -- 检测阈值
+    challenge_type ENUM('none', 'js', 'captcha', 'slider') DEFAULT 'js',
+    challenge_difficulty INT DEFAULT 5,
     rate_limit INT DEFAULT 60 COMMENT '每分钟请求限制',
-    burst_limit INT DEFAULT 10 COMMENT '突发请求限制',
-    session_limit INT DEFAULT 1000 COMMENT '会话请求限制',
-    
-    -- 检测规则
-    check_js TINYINT(1) DEFAULT 1 COMMENT 'JS挑战',
-    check_captcha TINYINT(1) DEFAULT 0 COMMENT '验证码',
-    check_fingerprint TINYINT(1) DEFAULT 1 COMMENT '浏览器指纹',
-    check_behavior TINYINT(1) DEFAULT 1 COMMENT '行为分析',
-    
-    -- 白名单
-    whitelist_ips TEXT COMMENT 'IP白名单',
-    whitelist_ua TEXT COMMENT 'UA白名单',
-    whitelist_referers TEXT COMMENT 'Referer白名单',
-    
-    -- 响应配置
-    block_message TEXT COMMENT '封禁消息',
-    challenge_page TEXT COMMENT '挑战页面HTML',
-    
+    block_duration INT DEFAULT 3600 COMMENT '封禁时长(秒)',
+    whitelist_ips JSON,
+    whitelist_ua JSON,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     
-    UNIQUE KEY unique_domain (domain),
-    INDEX idx_enabled (enabled)
+    UNIQUE KEY unique_name (name),
+    INDEX idx_domain (domain)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- 反爬日志表
 CREATE TABLE IF NOT EXISTS antibot_logs (
     id BIGINT AUTO_INCREMENT PRIMARY KEY,
-    domain VARCHAR(255),
-    ip VARCHAR(45) NOT NULL,
-    action ENUM('allow', 'challenge', 'block', 'whitelist') NOT NULL,
-    reason VARCHAR(100),
-    score INT DEFAULT 0,
-    user_agent TEXT,
-    fingerprint VARCHAR(64),
-    request_path VARCHAR(500),
+    config_id INT,
+    ip VARCHAR(45),
     country_code VARCHAR(2),
+    path VARCHAR(500),
+    user_agent TEXT,
+    challenge_type VARCHAR(20),
+    result ENUM('pass', 'block', 'challenge') DEFAULT 'pass',
+    reason VARCHAR(255),
     logged_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     
+    INDEX idx_config (config_id),
     INDEX idx_ip (ip),
-    INDEX idx_domain (domain),
-    INDEX idx_action (action),
-    INDEX idx_logged (logged_at),
-    INDEX idx_ip_logged (ip, logged_at)
+    INDEX idx_result (result),
+    INDEX idx_logged (logged_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
--- 临时封禁表
+-- 反爬封禁表
 CREATE TABLE IF NOT EXISTS antibot_blocks (
     id INT AUTO_INCREMENT PRIMARY KEY,
     ip VARCHAR(45) NOT NULL,
-    domain VARCHAR(255),
-    reason VARCHAR(100),
+    config_id INT,
+    reason VARCHAR(255),
     blocked_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     until_at TIMESTAMP NOT NULL,
     
-    UNIQUE KEY unique_block (ip, domain),
+    UNIQUE KEY unique_ip_config (ip, config_id),
     INDEX idx_until (until_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
--- 验证会话表
+-- 反爬验证会话表
 CREATE TABLE IF NOT EXISTS antibot_sessions (
     id VARCHAR(64) PRIMARY KEY,
     ip VARCHAR(45) NOT NULL,
-    domain VARCHAR(255),
+    config_id INT,
+    challenge_data JSON,
     verified TINYINT(1) DEFAULT 0,
-    challenge_type VARCHAR(20),
-    challenge_data TEXT,
     attempts INT DEFAULT 0,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    verified_at TIMESTAMP NULL,
     expires_at TIMESTAMP NOT NULL,
     
     INDEX idx_ip (ip),
     INDEX idx_expires (expires_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
--- 反爬虫统计表
+-- 反爬统计表
 CREATE TABLE IF NOT EXISTS antibot_stats (
     id INT AUTO_INCREMENT PRIMARY KEY,
-    reason VARCHAR(100) NOT NULL,
-    count INT UNSIGNED DEFAULT 0,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    UNIQUE KEY unique_reason (reason)
+    config_id INT,
+    date DATE NOT NULL,
+    total_requests INT DEFAULT 0,
+    passed_requests INT DEFAULT 0,
+    blocked_requests INT DEFAULT 0,
+    challenged_requests INT DEFAULT 0,
+    unique_ips INT DEFAULT 0,
+    
+    UNIQUE KEY unique_stat (config_id, date),
+    INDEX idx_date (date)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
--- 初始化统计数据
-INSERT INTO antibot_stats (reason, count) VALUES ('total_blocked', 0) ON DUPLICATE KEY UPDATE reason=reason;
-
--- 反爬虫黑名单表
+-- 全局黑名单(反爬用)
 CREATE TABLE IF NOT EXISTS antibot_blacklist (
     id INT AUTO_INCREMENT PRIMARY KEY,
-    ip VARCHAR(45) NOT NULL,
-    reason VARCHAR(255) DEFAULT '',
+    pattern VARCHAR(255) NOT NULL COMMENT 'IP或正则',
+    pattern_type ENUM('ip', 'cidr', 'regex') DEFAULT 'ip',
+    reason VARCHAR(255),
+    enabled TINYINT(1) DEFAULT 1,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    UNIQUE KEY unique_ip (ip)
+    
+    UNIQUE KEY unique_pattern (pattern)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
--- 反爬虫白名单表
+-- 全局白名单(反爬用)
 CREATE TABLE IF NOT EXISTS antibot_whitelist (
     id INT AUTO_INCREMENT PRIMARY KEY,
-    ip VARCHAR(45) NOT NULL,
-    note VARCHAR(255) DEFAULT '',
+    pattern VARCHAR(255) NOT NULL,
+    pattern_type ENUM('ip', 'cidr', 'regex', 'ua') DEFAULT 'ip',
+    reason VARCHAR(255),
+    enabled TINYINT(1) DEFAULT 1,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    UNIQUE KEY unique_ip (ip)
+    
+    UNIQUE KEY unique_pattern (pattern)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- =====================================================
--- 第六部分: 用户与权限系统
+-- 第七部分: 用户与权限表
 -- =====================================================
-
--- 登录尝试表
-CREATE TABLE IF NOT EXISTS login_attempts (
-    id INT AUTO_INCREMENT PRIMARY KEY,
-    ip VARCHAR(45) NOT NULL,
-    username VARCHAR(100),
-    success TINYINT(1) DEFAULT 0,
-    user_agent TEXT,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    INDEX idx_ip (ip),
-    INDEX idx_created (created_at),
-    INDEX idx_ip_created (ip, created_at)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- 用户表
 CREATE TABLE IF NOT EXISTS users (
     id INT AUTO_INCREMENT PRIMARY KEY,
     username VARCHAR(50) NOT NULL,
     password_hash VARCHAR(255) NOT NULL,
-    email VARCHAR(100),
+    email VARCHAR(255),
     role ENUM('admin', 'operator', 'viewer') DEFAULT 'viewer',
     status ENUM('active', 'inactive', 'locked') DEFAULT 'active',
-    
-    -- 两步验证
-    two_factor_enabled TINYINT(1) DEFAULT 0,
-    two_factor_secret VARCHAR(64),
-    
-    -- 密码策略
-    password_changed_at TIMESTAMP NULL,
-    password_expires_at TIMESTAMP NULL,
     must_change_password TINYINT(1) DEFAULT 0,
-    
-    -- 登录信息
+    last_login TIMESTAMP NULL COMMENT '最后登录时间(兼容字段)',
     last_login_at TIMESTAMP NULL,
     last_login_ip VARCHAR(45),
     login_count INT DEFAULT 0,
-    failed_login_count INT DEFAULT 0,
+    failed_attempts INT DEFAULT 0,
     locked_until TIMESTAMP NULL,
-    
-    -- API访问
-    api_enabled TINYINT(1) DEFAULT 0,
+    two_factor_secret VARCHAR(100),
+    two_factor_enabled TINYINT(1) DEFAULT 0,
     api_key VARCHAR(64),
-    api_key_expires_at TIMESTAMP NULL,
-    
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     
     UNIQUE KEY unique_username (username),
     UNIQUE KEY unique_email (email),
-    INDEX idx_role (role),
-    INDEX idx_status (status)
+    UNIQUE KEY unique_api_key (api_key),
+    INDEX idx_status (status),
+    INDEX idx_role (role)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- 角色权限表
 CREATE TABLE IF NOT EXISTS role_permissions (
     id INT AUTO_INCREMENT PRIMARY KEY,
-    role ENUM('admin', 'operator', 'viewer') NOT NULL,
-    resource VARCHAR(50) NOT NULL COMMENT '资源: domains, rules, users, settings等',
-    action VARCHAR(20) NOT NULL COMMENT '操作: create, read, update, delete, export',
+    role VARCHAR(50) NOT NULL,
+    resource VARCHAR(100) NOT NULL,
+    action VARCHAR(50) NOT NULL,
     allowed TINYINT(1) DEFAULT 1,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     
     UNIQUE KEY unique_permission (role, resource, action)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
--- API密钥表
-CREATE TABLE IF NOT EXISTS api_keys (
+-- 登录尝试记录
+CREATE TABLE IF NOT EXISTS login_attempts (
     id INT AUTO_INCREMENT PRIMARY KEY,
-    user_id INT,
-    name VARCHAR(100) NOT NULL COMMENT '密钥名称',
-    api_key VARCHAR(64) NOT NULL,
-    permissions JSON COMMENT '权限列表',
-    rate_limit INT DEFAULT 100 COMMENT '每分钟限制',
-    
-    last_used_at TIMESTAMP NULL,
-    request_count BIGINT DEFAULT 0,
-    status ENUM('active', 'inactive', 'revoked') DEFAULT 'active',
-    expires_at TIMESTAMP NULL,
-    
+    username VARCHAR(50),
+    ip VARCHAR(45),
+    user_agent TEXT,
+    success TINYINT(1) DEFAULT 0,
+    reason VARCHAR(100),
+    locked_until TIMESTAMP NULL COMMENT '锁定截止时间',
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     
-    UNIQUE KEY unique_key (api_key),
+    INDEX idx_username (username),
+    INDEX idx_ip (ip),
+    INDEX idx_created (created_at),
+    INDEX idx_locked (locked_until)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- API Token表
+CREATE TABLE IF NOT EXISTS api_tokens (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    user_id INT NOT NULL,
+    name VARCHAR(100) NOT NULL,
+    token VARCHAR(64) NOT NULL,
+    note TEXT COMMENT '备注',
+    permissions JSON COMMENT '权限列表',
+    rate_limit INT DEFAULT 1000,
+    expires_at TIMESTAMP NULL,
+    last_used_at TIMESTAMP NULL,
+    use_count BIGINT DEFAULT 0,
+    call_count BIGINT DEFAULT 0 COMMENT '调用次数',
+    enabled TINYINT(1) DEFAULT 1,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    
+    UNIQUE KEY unique_token (token),
     INDEX idx_user (user_id),
-    INDEX idx_status (status),
+    INDEX idx_enabled (enabled),
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
--- API Token表 (用于API访问)
-CREATE TABLE IF NOT EXISTS api_tokens (
-    id INT AUTO_INCREMENT PRIMARY KEY,
-    name VARCHAR(100) NOT NULL COMMENT 'Token名称',
-    token VARCHAR(64) NOT NULL COMMENT 'API Token',
-    permissions JSON COMMENT '权限配置',
-    rate_limit INT DEFAULT 100 COMMENT '每分钟限制',
-    enabled TINYINT(1) DEFAULT 1 COMMENT '是否启用',
-    note TEXT COMMENT '备注',
-    
-    last_used_at TIMESTAMP NULL,
-    call_count BIGINT DEFAULT 0,
-    expires_at TIMESTAMP NULL,
-    
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    
-    UNIQUE KEY unique_token (token),
-    INDEX idx_enabled (enabled)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
 -- =====================================================
--- 第七部分: 审计与日志系统
+-- 第八部分: 日志与审计表
 -- =====================================================
 
 -- 审计日志表
 CREATE TABLE IF NOT EXISTS audit_logs (
-    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    id INT AUTO_INCREMENT PRIMARY KEY,
     user_id INT,
     username VARCHAR(50),
-    action VARCHAR(50) NOT NULL COMMENT '操作类型',
-    resource_type VARCHAR(50) COMMENT '资源类型',
-    resource_id VARCHAR(50) COMMENT '资源ID',
-    old_value JSON COMMENT '修改前',
-    new_value JSON COMMENT '修改后',
+    action VARCHAR(100) NOT NULL,
+    resource_type VARCHAR(50),
+    resource_id VARCHAR(100),
+    old_value JSON,
+    new_value JSON,
     ip VARCHAR(45),
     user_agent TEXT,
-    status ENUM('success', 'failure') DEFAULT 'success',
-    error_message TEXT,
+    status VARCHAR(20) DEFAULT 'success',
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     
     INDEX idx_user (user_id),
     INDEX idx_action (action),
     INDEX idx_resource (resource_type, resource_id),
-    INDEX idx_created (created_at),
-    INDEX idx_user_created (user_id, created_at),
-    INDEX idx_action_created (action, created_at)
+    INDEX idx_created (created_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- 系统日志表
 CREATE TABLE IF NOT EXISTS system_logs (
     id BIGINT AUTO_INCREMENT PRIMARY KEY,
-    level ENUM('DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL') DEFAULT 'INFO',
-    channel VARCHAR(50) DEFAULT 'app' COMMENT '日志通道',
-    message TEXT NOT NULL,
-    context JSON COMMENT '上下文数据',
-    extra JSON COMMENT '额外信息',
+    type VARCHAR(50) COMMENT '日志类型',
+    action VARCHAR(100) COMMENT '操作',
+    level ENUM('debug', 'info', 'warning', 'error', 'critical') DEFAULT 'info',
+    category VARCHAR(50),
+    message TEXT,
+    details TEXT,
+    context JSON,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    
-    INDEX idx_level (level),
-    INDEX idx_channel (channel),
-    INDEX idx_created (created_at),
-    INDEX idx_level_created (level, created_at)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
--- =====================================================
--- 第八部分: 域名安全检测
--- =====================================================
-
--- 域名安全检测日志
-CREATE TABLE IF NOT EXISTS domain_safety_logs (
-    id BIGINT AUTO_INCREMENT PRIMARY KEY,
-    domain VARCHAR(255) NOT NULL,
-    check_type VARCHAR(50) COMMENT '检测类型: google_safe_browsing, phishtank等',
-    is_safe TINYINT(1) DEFAULT 1,
-    threat_type VARCHAR(100),
-    threat_detail JSON,
-    checked_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    
-    INDEX idx_domain (domain),
-    INDEX idx_checked (checked_at),
-    INDEX idx_safe (is_safe)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
--- 威胁情报源配置
-CREATE TABLE IF NOT EXISTS threat_intel_sources (
-    id INT AUTO_INCREMENT PRIMARY KEY,
-    name VARCHAR(100) NOT NULL COMMENT '名称',
-    type ENUM('ip', 'domain', 'url') NOT NULL COMMENT '类型',
-    url TEXT NOT NULL COMMENT '订阅URL',
-    format ENUM('plain', 'csv', 'json') DEFAULT 'plain' COMMENT '格式',
-    enabled TINYINT(1) DEFAULT 1,
-    update_interval INT DEFAULT 3600 COMMENT '更新间隔(秒)',
-    last_updated_at TIMESTAMP NULL,
-    last_count INT DEFAULT 0 COMMENT '上次获取数量',
-    error_count INT DEFAULT 0,
-    last_error TEXT,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     
     INDEX idx_type (type),
-    INDEX idx_enabled (enabled)
+    INDEX idx_level (level),
+    INDEX idx_category (category),
+    INDEX idx_created (created_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- 域名安全日志
+CREATE TABLE IF NOT EXISTS domain_safety_logs (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    domain_id INT COMMENT '域名ID',
+    domain VARCHAR(255) NOT NULL,
+    check_type VARCHAR(50),
+    check_source VARCHAR(100) COMMENT '检测源',
+    status ENUM('safe', 'warning', 'danger') DEFAULT 'safe',
+    detail TEXT COMMENT '详细信息',
+    details JSON,
+    checked_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    
+    INDEX idx_domain_id (domain_id),
+    INDEX idx_domain (domain),
+    INDEX idx_status (status),
+    INDEX idx_checked (checked_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- =====================================================
--- 第九部分: Webhook与通知系统
+-- 第九部分: Webhook表
 -- =====================================================
 
 -- Webhook配置表
@@ -647,56 +600,55 @@ CREATE TABLE IF NOT EXISTS webhooks (
     id INT AUTO_INCREMENT PRIMARY KEY,
     name VARCHAR(100) NOT NULL,
     url TEXT NOT NULL,
-    secret VARCHAR(100) COMMENT '签名密钥',
-    events JSON NOT NULL COMMENT '订阅的事件列表',
+    secret VARCHAR(255),
+    events JSON COMMENT '订阅的事件类型',
     headers JSON COMMENT '自定义请求头',
     enabled TINYINT(1) DEFAULT 1,
     retry_count INT DEFAULT 3,
     timeout INT DEFAULT 30,
-    
     last_triggered_at TIMESTAMP NULL,
-    last_status_code INT,
-    failure_count INT DEFAULT 0,
-    
+    last_status VARCHAR(20),
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     
+    UNIQUE KEY unique_name (name),
     INDEX idx_enabled (enabled)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
--- Webhook日志
+-- Webhook日志表
 CREATE TABLE IF NOT EXISTS webhook_logs (
-    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    id INT AUTO_INCREMENT PRIMARY KEY,
     webhook_id INT NOT NULL,
-    event VARCHAR(50),
+    event_type VARCHAR(100),
+    title VARCHAR(255) COMMENT '通知标题',
+    level VARCHAR(20) COMMENT '通知级别',
     payload JSON,
     response_code INT,
     response_body TEXT,
     duration_ms INT,
-    status ENUM('success', 'failure', 'pending') DEFAULT 'pending',
-    retry_count INT DEFAULT 0,
+    success TINYINT(1) DEFAULT 0,
+    error_message TEXT,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     
     INDEX idx_webhook (webhook_id),
     INDEX idx_created (created_at),
-    INDEX idx_status (status),
+    INDEX idx_success (success),
     FOREIGN KEY (webhook_id) REFERENCES webhooks(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- =====================================================
--- 第十部分: 备份与监控系统
+-- 第十部分: 备份与任务表
 -- =====================================================
 
--- 备份日志表
-CREATE TABLE IF NOT EXISTS backup_logs (
+-- 备份记录表
+CREATE TABLE IF NOT EXISTS backups (
     id INT AUTO_INCREMENT PRIMARY KEY,
-    type ENUM('full', 'incremental', 'config') NOT NULL,
     filename VARCHAR(255) NOT NULL,
+    filepath VARCHAR(500) NOT NULL,
     filesize BIGINT DEFAULT 0,
-    tables_count INT DEFAULT 0,
-    rows_count BIGINT DEFAULT 0,
-    duration_seconds INT DEFAULT 0,
-    status ENUM('running', 'success', 'failure') DEFAULT 'running',
+    type ENUM('full', 'partial', 'config') DEFAULT 'full',
+    status ENUM('pending', 'running', 'completed', 'failed') DEFAULT 'pending',
+    tables_included JSON,
     error_message TEXT,
     created_by INT,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -719,6 +671,16 @@ CREATE TABLE IF NOT EXISTS system_metrics (
     INDEX idx_created (created_at),
     INDEX idx_name_created (metric_name, created_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- 业务监控指标快照表 (来自 migrate_database_v2.sql)
+CREATE TABLE IF NOT EXISTS metrics_snapshot (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    metric_name VARCHAR(100) NOT NULL,
+    metric_value DECIMAL(20, 6) NOT NULL,
+    labels JSON,
+    recorded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    INDEX idx_metric_time (metric_name, recorded_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- 小时统计表(性能优化)
 CREATE TABLE IF NOT EXISTS stats_hourly (
@@ -774,6 +736,66 @@ CREATE TABLE IF NOT EXISTS cache_warmup_config (
     INDEX idx_enabled_priority (enabled, priority DESC)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+-- API调用日志表
+CREATE TABLE IF NOT EXISTS api_logs (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    token_id INT NOT NULL,
+    action VARCHAR(100) NOT NULL,
+    request_data JSON,
+    response_code INT DEFAULT 200,
+    ip_address VARCHAR(45),
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    
+    INDEX idx_token (token_id),
+    INDEX idx_action (action),
+    INDEX idx_created (created_at),
+    INDEX idx_token_created (token_id, created_at),
+    FOREIGN KEY (token_id) REFERENCES api_tokens(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- 跳转UV统计表(去重统计用)
+CREATE TABLE IF NOT EXISTS jump_uv (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    rule_id INT NOT NULL,
+    visitor_hash VARBINARY(16) NOT NULL COMMENT 'IP的MD5 hash',
+    date DATE DEFAULT NULL,
+    uv_count INT DEFAULT 0,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    
+    UNIQUE KEY unique_visitor (rule_id, visitor_hash),
+    UNIQUE KEY unique_daily (rule_id, date),
+    INDEX idx_rule (rule_id),
+    INDEX idx_date (date)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- 跳转日统计表
+CREATE TABLE IF NOT EXISTS jump_daily_stats (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    rule_id INT NOT NULL,
+    stat_date DATE NOT NULL,
+    clicks INT DEFAULT 0,
+    unique_visitors INT DEFAULT 0,
+    countries JSON,
+    devices JSON,
+    referers JSON,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    
+    UNIQUE KEY unique_stat (rule_id, stat_date),
+    INDEX idx_rule (rule_id),
+    INDEX idx_date (stat_date)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- IP黑名单版本表(缓存控制)
+CREATE TABLE IF NOT EXISTS ip_blacklist_version (
+    id INT PRIMARY KEY DEFAULT 1,
+    version INT DEFAULT 1,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- 初始化版本记录
+INSERT INTO ip_blacklist_version (id, version) VALUES (1, 1) ON DUPLICATE KEY UPDATE id=id;
+
 -- =====================================================
 -- 第十一部分: 遗留兼容表(可选)
 -- =====================================================
@@ -781,63 +803,222 @@ CREATE TABLE IF NOT EXISTS cache_warmup_config (
 -- 旧版跳转表(兼容)
 CREATE TABLE IF NOT EXISTS redirects (
     id INT AUTO_INCREMENT PRIMARY KEY,
-    short_code VARCHAR(50) NOT NULL,
-    target_url TEXT NOT NULL,
+    ip VARCHAR(45) NOT NULL,
+    short_code VARCHAR(50),
+    url TEXT NOT NULL,
+    target_url TEXT,
+    note VARCHAR(255),
     countries VARCHAR(255) DEFAULT '',
     redirect_type VARCHAR(10) DEFAULT '302',
     status ENUM('active', 'inactive') DEFAULT 'active',
+    enabled TINYINT(1) DEFAULT 1,
     visit_count INT DEFAULT 0,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE KEY unique_ip (ip),
     UNIQUE KEY unique_code (short_code)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
--- 旧版IP池表(兼容)
+-- 旧版IP池表(兼容) - 扩展版
 CREATE TABLE IF NOT EXISTS ip_pool (
     id INT AUTO_INCREMENT PRIMARY KEY,
     ip VARCHAR(45) NOT NULL,
+    port INT DEFAULT 80,
+    protocol VARCHAR(10) DEFAULT 'http',
     pool_name VARCHAR(50) DEFAULT 'default',
+    country VARCHAR(100),
     country_code VARCHAR(2),
-    status ENUM('active', 'inactive') DEFAULT 'active',
+    region VARCHAR(100),
+    city VARCHAR(100),
+    isp VARCHAR(255),
+    status ENUM('active', 'inactive', 'checking') DEFAULT 'active',
+    speed INT DEFAULT 0 COMMENT '响应速度ms',
+    last_check TIMESTAMP NULL,
     last_used_at TIMESTAMP NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE KEY unique_ip (ip),
     INDEX idx_pool (pool_name),
-    INDEX idx_country (country_code)
+    INDEX idx_country (country_code),
+    INDEX idx_status (status)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
--- 旧版访问统计(兼容)
+-- 旧版访问统计(兼容) - 扩展版
 CREATE TABLE IF NOT EXISTS visit_stats (
     id INT AUTO_INCREMENT PRIMARY KEY,
     redirect_id INT,
-    date DATE NOT NULL,
+    target_ip VARCHAR(45),
+    date DATE,
     pv INT DEFAULT 0,
     uv INT DEFAULT 0,
-    UNIQUE KEY unique_stat (redirect_id, date)
+    total_clicks INT DEFAULT 0,
+    UNIQUE KEY unique_stat (redirect_id, date),
+    UNIQUE KEY unique_target (target_ip)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
--- 旧版访问日志(兼容)
+-- 旧版访问日志(兼容) - 扩展版
 CREATE TABLE IF NOT EXISTS visit_logs (
     id BIGINT AUTO_INCREMENT PRIMARY KEY,
     redirect_id INT,
+    target_ip VARCHAR(45),
+    visitor_ip VARCHAR(45),
     ip VARCHAR(45),
+    country VARCHAR(100),
     country_code VARCHAR(2),
     user_agent TEXT,
     referer TEXT,
     visited_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     INDEX idx_redirect (redirect_id),
+    INDEX idx_target (target_ip),
     INDEX idx_visited (visited_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
--- 旧版独立访客表(兼容)
+-- 旧版独立访客表(兼容) - 扩展版
 CREATE TABLE IF NOT EXISTS unique_visitors (
     id BIGINT AUTO_INCREMENT PRIMARY KEY,
-    redirect_id INT NOT NULL,
-    visitor_hash VARCHAR(64) NOT NULL,
-    date DATE NOT NULL,
+    redirect_id INT,
+    target_ip VARCHAR(45),
+    visitor_ip VARCHAR(45),
+    visitor_hash VARCHAR(64),
+    date DATE,
+    UNIQUE KEY unique_visitor (redirect_id, visitor_hash, date),
+    UNIQUE KEY unique_target_visitor (target_ip, visitor_ip)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- 反爬虫配置表(旧版兼容)
+CREATE TABLE IF NOT EXISTS antibot_config (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    `key` VARCHAR(100) NOT NULL,
+    `value` TEXT,
+    UNIQUE KEY unique_key (`key`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- 反爬虫请求记录表
+CREATE TABLE IF NOT EXISTS antibot_requests (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    visitor_ip VARCHAR(45) NOT NULL,
+    request_time INT NOT NULL COMMENT 'Unix时间戳',
+    INDEX idx_ip (visitor_ip),
+    INDEX idx_time (request_time)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- 反爬虫行为记录表
+CREATE TABLE IF NOT EXISTS antibot_behavior (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    visitor_ip VARCHAR(45) NOT NULL,
+    path VARCHAR(500),
+    suspicious TINYINT(1) DEFAULT 0,
+    recorded_at INT NOT NULL COMMENT 'Unix时间戳',
+    INDEX idx_ip (visitor_ip),
+    INDEX idx_recorded (recorded_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- 备份日志表
+CREATE TABLE IF NOT EXISTS backup_logs (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    filename VARCHAR(255) NOT NULL,
+    size BIGINT DEFAULT 0,
+    cloud_uploaded TINYINT(1) DEFAULT 0,
+    cloud_url VARCHAR(500),
+    success TINYINT(1) DEFAULT 1,
+    error TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    INDEX idx_created (created_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- 域名表(旧版兼容)
+CREATE TABLE IF NOT EXISTS domains (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    domain VARCHAR(255) NOT NULL,
+    type VARCHAR(50) DEFAULT 'jump',
+    target TEXT,
+    is_safe TINYINT(1) DEFAULT 1,
+    cf_zone_id VARCHAR(50),
+    enabled TINYINT(1) DEFAULT 1,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    UNIQUE KEY unique_domain (domain)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- 短链接表(旧版兼容)
+CREATE TABLE IF NOT EXISTS shortlinks (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    code VARCHAR(20) NOT NULL,
+    original_url TEXT NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    expires_at TIMESTAMP NULL,
+    UNIQUE KEY unique_code (code)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
     UNIQUE KEY unique_visitor (redirect_id, visitor_hash, date)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+-- 访问日志表(用于分区优化)
+CREATE TABLE IF NOT EXISTS access_logs (
+    id BIGINT AUTO_INCREMENT,
+    rule_id INT,
+    ip VARCHAR(45),
+    country_code VARCHAR(2),
+    user_agent TEXT,
+    referer TEXT,
+    device_type VARCHAR(20),
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (id, created_at),
+    INDEX idx_rule (rule_id),
+    INDEX idx_created (created_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 -- =====================================================
--- 第十二部分: 初始数据
+-- 第十二部分: 日志归档表
+-- =====================================================
+
+-- 跳转日志归档表
+CREATE TABLE IF NOT EXISTS jump_logs_archive (
+    id BIGINT PRIMARY KEY,
+    rule_id INT NOT NULL,
+    domain VARCHAR(255),
+    path VARCHAR(500),
+    target_url TEXT,
+    ip VARCHAR(45),
+    country_code VARCHAR(2),
+    user_agent TEXT,
+    referer TEXT,
+    device_type VARCHAR(20),
+    browser VARCHAR(50),
+    os VARCHAR(50),
+    is_unique TINYINT(1) DEFAULT 0,
+    response_time_ms INT DEFAULT 0,
+    visited_at TIMESTAMP,
+    archived_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    
+    INDEX idx_visited (visited_at),
+    INDEX idx_rule (rule_id),
+    INDEX idx_archived (archived_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- 审计日志归档表
+CREATE TABLE IF NOT EXISTS audit_logs_archive (
+    id INT PRIMARY KEY,
+    user_id INT,
+    username VARCHAR(50),
+    action VARCHAR(100),
+    resource_type VARCHAR(50),
+    resource_id VARCHAR(100),
+    old_value JSON,
+    new_value JSON,
+    details JSON,
+    ip VARCHAR(45),
+    ip_address VARCHAR(45),
+    user_agent TEXT,
+    status VARCHAR(20),
+    created_at TIMESTAMP,
+    archived_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    
+    INDEX idx_created (created_at),
+    INDEX idx_archived (archived_at),
+    INDEX idx_original_date (created_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+ROW_FORMAT=COMPRESSED;
+
+-- =====================================================
+-- 第十三部分: 初始数据
 -- =====================================================
 
 -- 默认管理员 (密码: admin123, 请立即修改!)
@@ -886,7 +1067,7 @@ INSERT INTO cache_warmup_config (cache_key, warmup_query, ttl, priority) VALUES
 ON DUPLICATE KEY UPDATE cache_key=cache_key;
 
 -- =====================================================
--- 第十三部分: IP黑名单默认数据
+-- 第十四部分: IP黑名单默认数据
 -- =====================================================
 
 -- Google爬虫
@@ -1012,7 +1193,7 @@ INSERT IGNORE INTO ip_blacklist (ip_cidr, ip_start, ip_end, type, category, name
 ('193.56.28.0/24', INET_ATON('193.56.28.0'), INET_ATON('193.56.28.255'), 'malicious', 'attacker', '俄罗斯恶意段');
 
 -- =====================================================
--- 第十四部分: 存储过程
+-- 第十五部分: 存储过程
 -- =====================================================
 
 DELIMITER //
@@ -1063,6 +1244,9 @@ BEGIN
     
     -- 清理旧版访问日志
     DELETE FROM visit_logs WHERE visited_at < DATE_SUB(NOW(), INTERVAL retention_days DAY);
+    
+    -- 清理访问日志
+    DELETE FROM access_logs WHERE created_at < DATE_SUB(NOW(), INTERVAL retention_days DAY);
     
     -- 优化表
     OPTIMIZE TABLE jump_logs, antibot_logs, audit_logs, system_logs, webhook_logs, 
@@ -1152,112 +1336,6 @@ BEGIN
     WHERE id = p_rule_id;
 END//
 
-DELIMITER ;
-
--- =====================================================
--- 第十五部分: 定时事件
--- =====================================================
-
--- 启用事件调度器
-SET GLOBAL event_scheduler = ON;
-
--- 每日清理事件
-DROP EVENT IF EXISTS daily_cleanup;
-CREATE EVENT IF NOT EXISTS daily_cleanup
-ON SCHEDULE EVERY 1 DAY
-STARTS CURRENT_DATE + INTERVAL 3 HOUR
-DO
-CALL cleanup_old_data();
-
--- 每小时统计聚合事件
-DROP EVENT IF EXISTS hourly_stats_aggregation;
-CREATE EVENT IF NOT EXISTS hourly_stats_aggregation
-ON SCHEDULE EVERY 1 HOUR
-STARTS CURRENT_TIMESTAMP + INTERVAL 5 MINUTE
-DO
-CALL aggregate_hourly_stats();
-
--- 每日统计聚合事件
-DROP EVENT IF EXISTS daily_stats_aggregation;
-CREATE EVENT IF NOT EXISTS daily_stats_aggregation
-ON SCHEDULE EVERY 1 DAY
-STARTS CURRENT_DATE + INTERVAL 1 DAY + INTERVAL 1 HOUR
-DO
-CALL aggregate_daily_stats();
-
--- =====================================================
--- 第十六部分: 性能优化索引
--- =====================================================
-
--- Dashboard 查询优化索引
-ALTER TABLE jump_logs ADD INDEX IF NOT EXISTS idx_visited_device (visited_at, device_type);
-ALTER TABLE jump_logs ADD INDEX IF NOT EXISTS idx_visited_country (visited_at, country_code);
-ALTER TABLE jump_logs ADD INDEX IF NOT EXISTS idx_date_rule (DATE(visited_at), rule_id);
-
--- 审计日志查询优化
-ALTER TABLE audit_logs ADD INDEX IF NOT EXISTS idx_created_action (created_at, action);
-ALTER TABLE audit_logs ADD INDEX IF NOT EXISTS idx_user_created (user_id, created_at);
-
--- API Token 查询优化
-ALTER TABLE api_tokens ADD INDEX IF NOT EXISTS idx_enabled_expires (enabled, expires_at);
-
--- 短链接查询优化  
-ALTER TABLE short_links ADD INDEX IF NOT EXISTS idx_code_enabled (code, enabled);
-
--- =====================================================
--- 第十七部分: 日志归档表
--- =====================================================
-
--- 跳转日志归档表
-CREATE TABLE IF NOT EXISTS jump_logs_archive (
-    id BIGINT PRIMARY KEY,
-    rule_id INT NOT NULL,
-    domain VARCHAR(255),
-    path VARCHAR(500),
-    target_url TEXT,
-    ip VARCHAR(45),
-    country_code VARCHAR(2),
-    user_agent TEXT,
-    referer TEXT,
-    device_type VARCHAR(20),
-    browser VARCHAR(50),
-    os VARCHAR(50),
-    is_unique TINYINT(1) DEFAULT 0,
-    response_time_ms INT DEFAULT 0,
-    visited_at TIMESTAMP,
-    archived_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    
-    INDEX idx_visited (visited_at),
-    INDEX idx_rule (rule_id),
-    INDEX idx_archived (archived_at)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
--- 审计日志归档表
-CREATE TABLE IF NOT EXISTS audit_logs_archive (
-    id INT PRIMARY KEY,
-    user_id INT,
-    username VARCHAR(50),
-    action VARCHAR(100),
-    resource_type VARCHAR(50),
-    resource_id VARCHAR(100),
-    old_value JSON,
-    new_value JSON,
-    ip VARCHAR(45),
-    user_agent TEXT,
-    status VARCHAR(20),
-    created_at TIMESTAMP,
-    archived_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    
-    INDEX idx_created (created_at),
-    INDEX idx_archived (archived_at)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
--- =====================================================
--- 第十八部分: 归档存储过程
--- =====================================================
-
-DELIMITER //
-
 -- 归档旧日志数据
 DROP PROCEDURE IF EXISTS archive_old_logs//
 CREATE PROCEDURE archive_old_logs(IN retention_days INT)
@@ -1292,8 +1370,8 @@ BEGIN
     -- 归档审计日志
     SET rows_archived = 0;
     REPEAT
-        INSERT INTO audit_logs_archive 
-        SELECT *, NOW() as archived_at 
+        INSERT INTO audit_logs_archive (id, user_id, username, action, resource_type, resource_id, old_value, new_value, ip, user_agent, status, created_at, archived_at)
+        SELECT id, user_id, username, action, resource_type, resource_id, old_value, new_value, ip, user_agent, status, created_at, NOW()
         FROM audit_logs 
         WHERE DATE(created_at) < archive_date
         LIMIT batch_size;
@@ -1326,7 +1404,150 @@ BEGIN
     WHERE archived_at < DATE_SUB(NOW(), INTERVAL archive_retention_days DAY);
 END//
 
+-- 审计日志归档存储过程 (来自 migrate_database_v2.sql)
+DROP PROCEDURE IF EXISTS archive_old_audit_logs//
+CREATE PROCEDURE archive_old_audit_logs(IN days_to_keep INT)
+BEGIN
+    DECLARE cutoff_date DATETIME;
+    SET cutoff_date = DATE_SUB(NOW(), INTERVAL days_to_keep DAY);
+    
+    -- 插入到归档表
+    INSERT INTO audit_logs_archive 
+        (id, user_id, username, action, resource_type, resource_id, ip, user_agent, created_at)
+    SELECT id, user_id, username, action, resource_type, resource_id, ip, user_agent, created_at
+    FROM audit_logs
+    WHERE created_at < cutoff_date;
+    
+    -- 删除原表数据
+    DELETE FROM audit_logs WHERE created_at < cutoff_date;
+    
+    SELECT ROW_COUNT() AS archived_count;
+END//
+
+-- 指标采集存储过程 (来自 migrate_database_v2.sql)
+DROP PROCEDURE IF EXISTS collect_metrics//
+CREATE PROCEDURE collect_metrics()
+BEGIN
+    -- 总规则数
+    INSERT INTO metrics_snapshot (metric_name, metric_value, labels)
+    SELECT 'ip_jump_total_rules', COUNT(*), '{"type": "all"}' FROM jump_rules;
+    
+    -- 启用的规则数
+    INSERT INTO metrics_snapshot (metric_name, metric_value, labels)
+    SELECT 'ip_jump_enabled_rules', COUNT(*), '{"type": "enabled"}' FROM jump_rules WHERE enabled = 1;
+    
+    -- 按类型统计
+    INSERT INTO metrics_snapshot (metric_name, metric_value, labels)
+    SELECT 'ip_jump_rules_by_type', COUNT(*), JSON_OBJECT('rule_type', rule_type)
+    FROM jump_rules GROUP BY rule_type;
+    
+    -- 今日访问量
+    INSERT INTO metrics_snapshot (metric_name, metric_value, labels)
+    SELECT 'ip_jump_today_requests', COUNT(*), '{"period": "today"}'
+    FROM jump_logs WHERE DATE(visited_at) = CURDATE();
+END//
+
+-- access_logs 分区维护存储过程 (来自 migrate_database_v2.sql)
+DROP PROCEDURE IF EXISTS maintain_access_logs_partitions//
+CREATE PROCEDURE maintain_access_logs_partitions()
+BEGIN
+    DECLARE next_month DATE;
+    DECLARE partition_name VARCHAR(20);
+    DECLARE partition_value INT;
+    DECLARE has_partitions INT DEFAULT 0;
+    
+    -- 检查表是否有分区
+    SELECT COUNT(*) INTO has_partitions
+    FROM information_schema.PARTITIONS 
+    WHERE TABLE_SCHEMA = DATABASE()
+    AND TABLE_NAME = 'access_logs' 
+    AND PARTITION_NAME IS NOT NULL;
+    
+    IF has_partitions > 0 THEN
+        SET next_month = DATE_ADD(LAST_DAY(CURDATE()), INTERVAL 1 DAY);
+        SET partition_name = CONCAT('p', DATE_FORMAT(next_month, '%Y%m'));
+        SET partition_value = TO_DAYS(DATE_ADD(next_month, INTERVAL 1 MONTH));
+        
+        -- 检查分区是否存在
+        IF NOT EXISTS (
+            SELECT 1 FROM information_schema.PARTITIONS 
+            WHERE TABLE_SCHEMA = DATABASE()
+            AND TABLE_NAME = 'access_logs' 
+            AND PARTITION_NAME = partition_name
+        ) THEN
+            SET @sql = CONCAT(
+                'ALTER TABLE access_logs REORGANIZE PARTITION p_future INTO (',
+                'PARTITION ', partition_name, ' VALUES LESS THAN (', partition_value, '),',
+                'PARTITION p_future VALUES LESS THAN MAXVALUE)'
+            );
+            PREPARE stmt FROM @sql;
+            EXECUTE stmt;
+            DEALLOCATE PREPARE stmt;
+        END IF;
+        
+        -- 删除超过 90 天的分区
+        BEGIN
+            DECLARE done INT DEFAULT FALSE;
+            DECLARE old_partition VARCHAR(20);
+            DECLARE cur CURSOR FOR 
+                SELECT PARTITION_NAME 
+                FROM information_schema.PARTITIONS 
+                WHERE TABLE_SCHEMA = DATABASE()
+                AND TABLE_NAME = 'access_logs'
+                AND PARTITION_NAME != 'p_future'
+                AND PARTITION_NAME IS NOT NULL
+                AND PARTITION_DESCRIPTION < TO_DAYS(DATE_SUB(CURDATE(), INTERVAL 90 DAY));
+            DECLARE CONTINUE HANDLER FOR NOT FOUND SET done = TRUE;
+            
+            OPEN cur;
+            read_loop: LOOP
+                FETCH cur INTO old_partition;
+                IF done THEN
+                    LEAVE read_loop;
+                END IF;
+                
+                SET @drop_sql = CONCAT('ALTER TABLE access_logs DROP PARTITION ', old_partition);
+                PREPARE drop_stmt FROM @drop_sql;
+                EXECUTE drop_stmt;
+                DEALLOCATE PREPARE drop_stmt;
+            END LOOP;
+            CLOSE cur;
+        END;
+    END IF;
+END//
+
 DELIMITER ;
+
+-- =====================================================
+-- 第十六部分: 定时事件
+-- =====================================================
+
+-- 启用事件调度器
+SET GLOBAL event_scheduler = ON;
+
+-- 每日清理事件
+DROP EVENT IF EXISTS daily_cleanup;
+CREATE EVENT IF NOT EXISTS daily_cleanup
+ON SCHEDULE EVERY 1 DAY
+STARTS CURRENT_DATE + INTERVAL 3 HOUR
+DO
+CALL cleanup_old_data();
+
+-- 每小时统计聚合事件
+DROP EVENT IF EXISTS hourly_stats_aggregation;
+CREATE EVENT IF NOT EXISTS hourly_stats_aggregation
+ON SCHEDULE EVERY 1 HOUR
+STARTS CURRENT_TIMESTAMP + INTERVAL 5 MINUTE
+DO
+CALL aggregate_hourly_stats();
+
+-- 每日统计聚合事件
+DROP EVENT IF EXISTS daily_stats_aggregation;
+CREATE EVENT IF NOT EXISTS daily_stats_aggregation
+ON SCHEDULE EVERY 1 DAY
+STARTS CURRENT_DATE + INTERVAL 1 DAY + INTERVAL 1 HOUR
+DO
+CALL aggregate_daily_stats();
 
 -- 每周归档事件（保留90天在线数据）
 DROP EVENT IF EXISTS weekly_archive;
@@ -1344,6 +1565,58 @@ STARTS CURRENT_DATE + INTERVAL 1 MONTH + INTERVAL 3 HOUR
 DO
 CALL cleanup_archive(365);
 
+-- 分区维护事件（每天凌晨3点执行）
+DROP EVENT IF EXISTS evt_maintain_partitions;
+CREATE EVENT IF NOT EXISTS evt_maintain_partitions
+ON SCHEDULE EVERY 1 DAY
+STARTS CONCAT(CURDATE() + INTERVAL 1 DAY, ' 03:00:00')
+DO CALL maintain_access_logs_partitions();
+
+-- 指标采集事件（每分钟执行）
+DROP EVENT IF EXISTS evt_collect_metrics;
+CREATE EVENT IF NOT EXISTS evt_collect_metrics
+ON SCHEDULE EVERY 1 MINUTE
+DO CALL collect_metrics();
+
+-- 清理旧指标数据事件（保留7天，每天凌晨4点）
+DROP EVENT IF EXISTS evt_cleanup_metrics;
+CREATE EVENT IF NOT EXISTS evt_cleanup_metrics
+ON SCHEDULE EVERY 1 DAY
+STARTS CONCAT(CURDATE() + INTERVAL 1 DAY, ' 04:00:00')
+DO DELETE FROM metrics_snapshot WHERE recorded_at < DATE_SUB(NOW(), INTERVAL 7 DAY);
+
+-- =====================================================
+-- 第十七部分: 性能优化索引
+-- =====================================================
+
+-- Dashboard 查询优化索引
+ALTER TABLE jump_logs ADD INDEX IF NOT EXISTS idx_visited_device (visited_at, device_type);
+ALTER TABLE jump_logs ADD INDEX IF NOT EXISTS idx_visited_country (visited_at, country_code);
+ALTER TABLE jump_logs ADD INDEX IF NOT EXISTS idx_date_rule (DATE(visited_at), rule_id);
+
+-- 审计日志查询优化
+ALTER TABLE audit_logs ADD INDEX IF NOT EXISTS idx_created_action (created_at, action);
+ALTER TABLE audit_logs ADD INDEX IF NOT EXISTS idx_user_created (user_id, created_at);
+
+-- API Token 查询优化
+ALTER TABLE api_tokens ADD INDEX IF NOT EXISTS idx_enabled_expires (enabled, expires_at);
+
+-- 短链接查询优化  
+ALTER TABLE short_links ADD INDEX IF NOT EXISTS idx_code_enabled (code, enabled);
+
+-- =====================================================
+-- 第十八部分: 读写分离健康检查视图 (来自 migrate_database_v2.sql)
+-- =====================================================
+
+CREATE OR REPLACE VIEW v_replication_status AS
+SELECT 
+    @@hostname AS server,
+    @@read_only AS is_readonly,
+    @@server_id AS server_id,
+    (SELECT COUNT(*) FROM information_schema.PROCESSLIST WHERE COMMAND != 'Sleep') AS active_connections,
+    (SELECT SUM(VARIABLE_VALUE) FROM performance_schema.global_status 
+     WHERE VARIABLE_NAME IN ('Com_select', 'Com_insert', 'Com_update', 'Com_delete')) AS total_queries;
+
 -- =====================================================
 -- 完成
 -- =====================================================
@@ -1352,9 +1625,16 @@ SET FOREIGN_KEY_CHECKS = 1;
 
 SELECT '========================================' as '';
 SELECT 'IP管理器数据库安装完成!' as status;
-SELECT '版本: 3.0 (合并版)' as version;
-SELECT CONCAT('表数量: ', COUNT(*)) as tables_count FROM information_schema.tables WHERE table_schema = 'ip_manager';
+SELECT '版本: 4.0 (完整合并版)' as version;
+SELECT CONCAT('表数量: ', COUNT(*)) as tables_count FROM information_schema.tables WHERE table_schema = DATABASE();
 SELECT '========================================' as '';
 SELECT '默认管理员: admin / admin123' as admin_info;
 SELECT '请立即修改默认密码!' as warning;
+SELECT '========================================' as '';
+SELECT '包含内容:' as '';
+SELECT '- 完整数据库结构' as '';
+SELECT '- 初始数据 (用户/权限/IP黑名单)' as '';
+SELECT '- 存储过程 (清理/归档/统计)' as '';
+SELECT '- 定时事件 (自动维护)' as '';
+SELECT '- 性能优化索引' as '';
 SELECT '========================================' as '';

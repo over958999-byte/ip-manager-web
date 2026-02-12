@@ -31,17 +31,20 @@ class NamemartController extends BaseController
         $this->requireLogin();
         
         $config = [
-            'api_key' => $this->db->getConfig('namemart_api_key', ''),
-            'api_secret' => $this->db->getConfig('namemart_api_secret', ''),
+            'member_id' => $this->db->getConfig('namemart_api_key', ''),
+            'api_key' => $this->db->getConfig('namemart_api_secret', ''),
+            'contact_id' => $this->db->getConfig('namemart_contact_id', ''),
+            'default_dns1' => $this->db->getConfig('namemart_default_dns1', 'ns1.domainnamedns.com'),
+            'default_dns2' => $this->db->getConfig('namemart_default_dns2', 'ns2.domainnamedns.com'),
             'enabled' => $this->db->getConfig('namemart_enabled', false)
         ];
         
         // 隐藏敏感信息
-        if ($config['api_secret']) {
-            $config['api_secret'] = '******' . substr($config['api_secret'], -4);
+        if ($config['api_key']) {
+            $config['api_key'] = '******' . substr($config['api_key'], -4);
         }
         
-        $this->success($config);
+        $this->success(['config' => $config]);
     }
     
     /**
@@ -51,15 +54,27 @@ class NamemartController extends BaseController
     {
         $this->requireLogin();
         
+        $memberId = $this->param('member_id');
         $apiKey = $this->param('api_key');
-        $apiSecret = $this->param('api_secret');
+        $contactId = $this->param('contact_id');
+        $dns1 = $this->param('default_dns1');
+        $dns2 = $this->param('default_dns2');
         $enabled = $this->param('enabled');
         
-        if ($apiKey !== null) {
-            $this->db->setConfig('namemart_api_key', $apiKey);
+        if ($memberId !== null) {
+            $this->db->setConfig('namemart_api_key', $memberId);
         }
-        if ($apiSecret !== null && strpos($apiSecret, '******') === false) {
-            $this->db->setConfig('namemart_api_secret', $apiSecret);
+        if ($apiKey !== null && strpos($apiKey, '******') === false) {
+            $this->db->setConfig('namemart_api_secret', $apiKey);
+        }
+        if ($contactId !== null) {
+            $this->db->setConfig('namemart_contact_id', $contactId);
+        }
+        if ($dns1 !== null) {
+            $this->db->setConfig('namemart_default_dns1', $dns1);
+        }
+        if ($dns2 !== null) {
+            $this->db->setConfig('namemart_default_dns2', $dns2);
         }
         if ($enabled !== null) {
             $this->db->setConfig('namemart_enabled', $enabled ? 1 : 0);

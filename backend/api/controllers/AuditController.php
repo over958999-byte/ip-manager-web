@@ -18,7 +18,9 @@ class AuditController extends BaseController
         $page = max(1, (int)($this->param('page') ?? 1));
         $limit = min(100, (int)($this->param('limit') ?? 20));
         $action = $this->param('action');
-        $user = $this->param('user');
+        $username = $this->param('username') ?? $this->param('user');  // 支持两种参数名
+        $resourceType = $this->param('resource_type');
+        $ip = $this->param('ip');
         $startDate = $this->param('start_date');
         $endDate = $this->param('end_date');
         
@@ -32,9 +34,19 @@ class AuditController extends BaseController
             $params[] = "%{$action}%";
         }
         
-        if ($user) {
-            $where[] = "user LIKE ?";
-            $params[] = "%{$user}%";
+        if ($username) {
+            $where[] = "username LIKE ?";
+            $params[] = "%{$username}%";
+        }
+        
+        if ($resourceType) {
+            $where[] = "resource_type = ?";
+            $params[] = $resourceType;
+        }
+        
+        if ($ip) {
+            $where[] = "ip LIKE ?";
+            $params[] = "%{$ip}%";
         }
         
         if ($startDate) {
@@ -49,25 +61,60 @@ class AuditController extends BaseController
         
         $whereClause = $where ? 'WHERE ' . implode(' AND ', $where) : '';
         
+        // 确保表存在
+        $this->ensureTableExists();
+        
         // 总数
         $total = $this->db->fetchColumn(
             "SELECT COUNT(*) FROM audit_logs {$whereClause}",
             $params
-        );
+        ) ?? 0;
         
         // 日志列表
         $logs = $this->db->fetchAll(
             "SELECT * FROM audit_logs {$whereClause} ORDER BY created_at DESC LIMIT ? OFFSET ?",
             array_merge($params, [$limit, $offset])
-        );
+        ) ?? [];
         
         $this->success([
             'list' => $logs,
-            'total' => $total,
+            'total' => (int)$total,
             'page' => $page,
             'limit' => $limit,
-            'pages' => ceil($total / $limit)
+            'pages' => $total > 0 ? ceil($total / $limit) : 0
         ]);
+    }
+    
+    /**
+     * 确保审计日志表存在
+     */
+    private function ensureTableExists(): void
+    {
+        try {
+            $this->pdo()->exec("
+                CREATE TABLE IF NOT EXISTS audit_logs (
+                    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+                    user_id INT,
+                    username VARCHAR(50),
+                    action VARCHAR(50) NOT NULL COMMENT '操作类型',
+                    resource_type VARCHAR(50) COMMENT '资源类型',
+                    resource_id VARCHAR(50) COMMENT '资源ID',
+                    old_value JSON COMMENT '修改前',
+                    new_value JSON COMMENT '修改后',
+                    ip VARCHAR(45),
+                    user_agent TEXT,
+                    status ENUM('success', 'failure') DEFAULT 'success',
+                    error_message TEXT,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    INDEX idx_user (user_id),
+                    INDEX idx_action (action),
+                    INDEX idx_resource (resource_type, resource_id),
+                    INDEX idx_created (created_at)
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+            ");
+        } catch (Exception $e) {
+            // 忽略，表可能已存在
+        }
     }
     
     /**
@@ -78,7 +125,7 @@ class AuditController extends BaseController
         $this->requireLogin();
         
         $action = $this->param('action');
-        $user = $this->param('user');
+        $username = $this->param('username') ?? $this->param('user');
         $startDate = $this->param('start_date');
         $endDate = $this->param('end_date');
         $format = $this->param('format', 'csv');
@@ -91,9 +138,9 @@ class AuditController extends BaseController
             $params[] = "%{$action}%";
         }
         
-        if ($user) {
-            $where[] = "user LIKE ?";
-            $params[] = "%{$user}%";
+        if ($username) {
+            $where[] = "username LIKE ?";
+            $params[] = "%{$username}%";
         }
         
         if ($startDate) {

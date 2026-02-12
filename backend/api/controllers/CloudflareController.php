@@ -44,13 +44,15 @@ class CloudflareController extends BaseController
     {
         $this->requireLogin();
         
-        $this->success([
+        $config = [
             'api_token' => !empty($this->cfConfig['api_token']) 
                 ? '********' . substr($this->cfConfig['api_token'], -4) 
                 : '',
             'account_id' => $this->cfConfig['account_id'] ?? '',
             'configured' => !empty($this->cfConfig['api_token']) && !empty($this->cfConfig['account_id'])
-        ]);
+        ];
+        
+        $this->success(['config' => $config]);
     }
     
     /**

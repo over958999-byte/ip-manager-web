@@ -52,18 +52,19 @@ class Security {
                        || ($_SERVER['SERVER_PORT'] ?? 80) == 443;
             
             session_set_cookie_params([
-                'lifetime' => 0,
+                'lifetime' => 86400,  // 24小时
                 'path' => '/',
                 'domain' => '',
                 'secure' => $isHttps,
                 'httponly' => true,
-                'samesite' => 'Strict'
+                'samesite' => 'Lax'  // 改为Lax以支持跨页面导航
             ]);
             
             // 使用更安全的 session 配置
             ini_set('session.use_strict_mode', '1');
             ini_set('session.use_only_cookies', '1');
             ini_set('session.cookie_httponly', '1');
+            ini_set('session.gc_maxlifetime', '86400');  // Session 数据保存24小时
             
             if ($isHttps) {
                 ini_set('session.cookie_secure', '1');
