@@ -16,8 +16,8 @@ class NamemartController extends BaseController
     private function getNamemart(): NamemartService
     {
         if ($this->namemart === null) {
-            $memberId = $this->db->getConfig('namemart_api_key', '');
-            $apiKey = $this->db->getConfig('namemart_api_secret', '');
+            $memberId = $this->db->getConfig('namemart_member_id', '');
+            $apiKey = $this->db->getConfig('namemart_api_key', '');
             $this->namemart = new NamemartService($memberId, $apiKey);
         }
         return $this->namemart;
@@ -31,8 +31,8 @@ class NamemartController extends BaseController
         $this->requireLogin();
         
         $config = [
-            'member_id' => $this->db->getConfig('namemart_api_key', ''),
-            'api_key' => $this->db->getConfig('namemart_api_secret', ''),
+            'member_id' => $this->db->getConfig('namemart_member_id', ''),
+            'api_key' => $this->db->getConfig('namemart_api_key', ''),
             'contact_id' => $this->db->getConfig('namemart_contact_id', ''),
             'default_dns1' => $this->db->getConfig('namemart_default_dns1', 'ns1.domainnamedns.com'),
             'default_dns2' => $this->db->getConfig('namemart_default_dns2', 'ns2.domainnamedns.com'),
@@ -41,7 +41,7 @@ class NamemartController extends BaseController
         
         // 隐藏敏感信息
         if ($config['api_key']) {
-            $config['api_key'] = '******' . substr($config['api_key'], -4);
+            $config['api_key_masked'] = '******' . substr($config['api_key'], -4);
         }
         
         $this->success(['config' => $config]);
@@ -62,10 +62,10 @@ class NamemartController extends BaseController
         $enabled = $this->param('enabled');
         
         if ($memberId !== null) {
-            $this->db->setConfig('namemart_api_key', $memberId);
+            $this->db->setConfig('namemart_member_id', $memberId);
         }
         if ($apiKey !== null && strpos($apiKey, '******') === false) {
-            $this->db->setConfig('namemart_api_secret', $apiKey);
+            $this->db->setConfig('namemart_api_key', $apiKey);
         }
         if ($contactId !== null) {
             $this->db->setConfig('namemart_contact_id', $contactId);
@@ -198,16 +198,34 @@ class NamemartController extends BaseController
     {
         $this->requireLogin();
         
+        // 前端发送的字段名与后端需要的字段名映射
+        $phone = $this->param('tel') ?: $this->param('phone');
+        $address = $this->param('street') ?: $this->param('address');
+        $state = $this->param('province') ?: $this->param('state');
+        $zipCode = $this->param('post_code') ?: $this->param('zip_code');
+        $country = $this->param('country_code') ?: $this->param('country');
+        
+        if (empty($phone)) {
+            $this->error('电话不能为空');
+        }
+        if (empty($address)) {
+            $this->error('地址不能为空');
+        }
+        
         $data = [
             'first_name' => $this->requiredParam('first_name', '名不能为空'),
             'last_name' => $this->requiredParam('last_name', '姓不能为空'),
             'email' => $this->requiredParam('email', '邮箱不能为空'),
-            'phone' => $this->requiredParam('phone', '电话不能为空'),
-            'address' => $this->requiredParam('address', '地址不能为空'),
+            'phone' => $phone,
+            'tel_area_code' => $this->param('tel_area_code', ''),
+            'address' => $address,
             'city' => $this->requiredParam('city', '城市不能为空'),
-            'state' => $this->param('state', ''),
-            'country' => $this->requiredParam('country', '国家不能为空'),
-            'zip_code' => $this->requiredParam('zip_code', '邮编不能为空')
+            'state' => $state ?: '',
+            'country' => $country ?: 'US',
+            'zip_code' => $zipCode ?: '',
+            'org' => $this->param('org', ''),
+            'template_name' => $this->param('template_name', 'DefaultTemplate'),
+            'contact_type' => $this->param('contact_type', 0)
         ];
         
         try {

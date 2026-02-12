@@ -203,6 +203,9 @@ abstract class BaseController
     protected function audit(string $action, string $resourceType = null, $resourceId = null, array $details = []): void
     {
         try {
+            // 确保表存在
+            $this->ensureAuditTableExists();
+            
             // 脱敏处理
             $sanitizedDetails = $this->sanitizeLogData($details);
             
@@ -216,13 +219,48 @@ abstract class BaseController
                 $action,
                 $resourceType,
                 $resourceId,
-                json_encode($sanitizedDetails['old'] ?? null),
-                json_encode($sanitizedDetails['new'] ?? null),
+                json_encode($sanitizedDetails['old'] ?? null, JSON_UNESCAPED_UNICODE),
+                json_encode($sanitizedDetails['new'] ?? $sanitizedDetails, JSON_UNESCAPED_UNICODE),
                 $this->getClientIp(),
                 $_SERVER['HTTP_USER_AGENT'] ?? ''
             ]);
         } catch (Exception $e) {
-            Logger::logError('审计日志记录失败', ['error' => $e->getMessage()]);
+            error_log('审计日志记录失败: ' . $e->getMessage());
+        }
+    }
+    
+    /**
+     * 确保审计日志表存在
+     */
+    private function ensureAuditTableExists(): void
+    {
+        static $checked = false;
+        if ($checked) return;
+        
+        try {
+            $this->pdo()->exec("
+                CREATE TABLE IF NOT EXISTS audit_logs (
+                    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+                    user_id INT,
+                    username VARCHAR(50),
+                    action VARCHAR(100) NOT NULL,
+                    resource_type VARCHAR(50),
+                    resource_id VARCHAR(100),
+                    old_value JSON,
+                    new_value JSON,
+                    ip VARCHAR(45),
+                    user_agent TEXT,
+                    status VARCHAR(20) DEFAULT 'success',
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    INDEX idx_user (user_id),
+                    INDEX idx_action (action),
+                    INDEX idx_resource (resource_type, resource_id),
+                    INDEX idx_created (created_at)
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+            ");
+            $checked = true;
+        } catch (Exception $e) {
+            // 忽略
         }
     }
     
