@@ -280,6 +280,7 @@ class AuthController extends BaseController
         
         $this->success([
             'logged_in' => $loggedIn,
+            'username' => $loggedIn ? ($_SESSION['username'] ?? 'admin') : null,
             'login_time' => $_SESSION['login_time'] ?? null
         ]);
     }

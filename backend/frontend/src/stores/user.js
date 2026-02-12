@@ -26,12 +26,13 @@ export const useUserStore = defineStore('user', () => {
   async function checkLogin() {
     try {
       const res = await api.checkLogin()
-      isLoggedIn.value = res.logged_in
-      if (res.logged_in && res.username) {
-        username.value = res.username
+      const loggedIn = res.data?.logged_in || res.logged_in || false
+      isLoggedIn.value = loggedIn
+      if (loggedIn) {
+        username.value = res.data?.username || res.username || 'admin'
         role.value = 'admin' // 登录成功即为管理员
       }
-      return res.logged_in
+      return loggedIn
     } catch (e) {
       isLoggedIn.value = false
       return false
