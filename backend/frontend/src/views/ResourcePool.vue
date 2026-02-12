@@ -2001,8 +2001,8 @@ const saveNmContact = async () => {
   try {
     const res = await nmCreateContact(form)
     if (res.success) {
-      nmConfig.contact_id = res.contact_id
-      ElMessage.success(`联系人创建成功，ID: ${res.contact_id}`)
+      nmConfig.contact_id = res.data.contact_id
+      ElMessage.success(`联系人创建成功，ID: ${res.data.contact_id}`)
       nmContactDialog.visible = false
     } else {
       ElMessage.error(res.message || '创建失败')
