@@ -236,7 +236,7 @@ class DomainController extends BaseController
         if (file_exists(__DIR__ . '/../../core/domain_safety.php')) {
             require_once __DIR__ . '/../../core/domain_safety.php';
             $safetyChecker = new DomainSafetyChecker($this->pdo());
-            $result = $safetyChecker->check($domain);
+            $result = $safetyChecker->checkDomain($domain, $id);
             $this->success($result);
         } else {
             $this->error('域名安全检测服务不可用');
