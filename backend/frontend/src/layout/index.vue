@@ -66,6 +66,30 @@
           </el-menu-item>
         </el-sub-menu>
       </el-menu>
+      
+      <!-- 底部版本信息 -->
+      <div class="sidebar-footer" v-if="!isCollapse">
+        <div class="version-info">
+          <div class="version-row">
+            <span class="version-label">当前版本</span>
+            <span class="version-value">{{ versionInfo.current || '...' }}</span>
+          </div>
+          <div class="version-row">
+            <span class="version-label">最新版本</span>
+            <span class="version-value" :class="{ 'has-update': versionInfo.hasUpdate }">
+              {{ versionInfo.latest || '...' }}
+              <el-tag v-if="versionInfo.hasUpdate" type="danger" size="small" effect="dark" style="margin-left: 4px;">NEW</el-tag>
+            </span>
+          </div>
+        </div>
+      </div>
+      <div class="sidebar-footer-collapsed" v-else>
+        <el-tooltip :content="`v${versionInfo.current}${versionInfo.hasUpdate ? ' (有更新)' : ''}`" placement="right">
+          <el-badge :is-dot="versionInfo.hasUpdate" class="version-badge">
+            <el-icon><InfoFilled /></el-icon>
+          </el-badge>
+        </el-tooltip>
+      </div>
     </el-aside>
 
     <!-- 主内容区 -->
@@ -118,14 +142,48 @@
 </template>
 
 <script setup>
-import { ref } from 'vue'
+import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useUserStore } from '../stores/user'
 import { ElMessageBox } from 'element-plus'
+import { getSystemInfo, checkUpdate } from '../api'
 
 const router = useRouter()
 const userStore = useUserStore()
 const isCollapse = ref(false)
+
+// 版本信息
+const versionInfo = ref({
+  current: '',
+  latest: '',
+  hasUpdate: false
+})
+
+// 获取版本信息
+const fetchVersionInfo = async () => {
+  try {
+    // 获取当前版本
+    const sysRes = await getSystemInfo()
+    if (sysRes.success && sysRes.data) {
+      versionInfo.value.current = sysRes.data.system_version || '1.0.0'
+    }
+    
+    // 检查更新获取最新版本
+    const updateRes = await checkUpdate()
+    if (updateRes.success && updateRes.data) {
+      versionInfo.value.latest = updateRes.data.latest_version || versionInfo.value.current
+      versionInfo.value.hasUpdate = updateRes.data.has_update || false
+    }
+  } catch (e) {
+    console.error('获取版本信息失败:', e)
+    versionInfo.value.current = '1.0.0'
+    versionInfo.value.latest = '1.0.0'
+  }
+}
+
+onMounted(() => {
+  fetchVersionInfo()
+})
 
 const handleCommand = async (command) => {
   if (command === 'logout') {
@@ -143,6 +201,65 @@ const handleCommand = async (command) => {
 <style scoped>
 .layout-container {
   height: 100vh;
+}
+
+.sidebar {
+  display: flex;
+  flex-direction: column;
+}
+
+.sidebar > .el-menu {
+  flex: 1;
+  overflow-y: auto;
+}
+
+/* 底部版本信息 - 展开状态 */
+.sidebar-footer {
+  padding: 12px 16px;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(0, 0, 0, 0.2);
+}
+
+.version-info {
+  font-size: 12px;
+}
+
+.version-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 4px 0;
+}
+
+.version-label {
+  color: rgba(255, 255, 255, 0.5);
+}
+
+.version-value {
+  color: rgba(255, 255, 255, 0.8);
+  font-family: 'Monaco', 'Menlo', monospace;
+}
+
+.version-value.has-update {
+  color: #f56c6c;
+}
+
+/* 底部版本信息 - 折叠状态 */
+.sidebar-footer-collapsed {
+  padding: 12px 0;
+  text-align: center;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(0, 0, 0, 0.2);
+}
+
+.version-badge {
+  cursor: pointer;
+  color: rgba(255, 255, 255, 0.6);
+  font-size: 18px;
+}
+
+.version-badge:hover {
+  color: #409eff;
 }
 
 .header {

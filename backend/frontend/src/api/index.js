@@ -376,4 +376,8 @@ export const getSystemHealth = () => request.get('?action=system_health')
 export const getPrometheusMetrics = () => request.get('?action=prometheus_metrics')
 export const getCacheStats = () => request.get('?action=cache_stats')
 
+// ==================== 系统更新 API ====================
+export const getSystemInfo = () => request.get('?action=system_info')
+export const checkUpdate = () => request.get('?action=system_check_update')
+
 export default api
