@@ -176,6 +176,28 @@ class Database {
         $stmt->execute($params);
         return $stmt->rowCount();
     }
+    
+    /**
+     * 通用删除方法
+     * @param string $table 表名
+     * @param array $where 条件数组，如 ['id' => 1] 或 ['id' => 1, 'status' => 'active']
+     * @return int 影响的行数
+     */
+    public function delete(string $table, array $where): int {
+        if (empty($where)) {
+            throw new Exception("Delete without conditions is not allowed");
+        }
+        
+        $conditions = [];
+        $params = [];
+        foreach ($where as $column => $value) {
+            $conditions[] = "`{$column}` = ?";
+            $params[] = $value;
+        }
+        
+        $sql = "DELETE FROM `{$table}` WHERE " . implode(' AND ', $conditions);
+        return $this->execute($sql, $params);
+    }
 
     // ==================== 配置相关 ====================
     
