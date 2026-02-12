@@ -67,18 +67,21 @@
         </el-sub-menu>
       </el-menu>
       
-      <!-- 底部版本信息 -->
+      <!-- 底部版本信息面板 -->
       <div class="sidebar-footer" v-if="!isCollapse">
-        <div class="version-info">
-          <div class="version-row">
+        <div class="version-panel">
+          <div class="version-item">
             <span class="version-label">当前版本</span>
-            <span class="version-value">{{ versionInfo.current || '...' }}</span>
+            <span class="version-value">
+              {{ versionInfo.current }}
+              <el-tag v-if="versionInfo.currentCommit" size="small" type="info" style="margin-left: 4px;">{{ versionInfo.currentCommit }}</el-tag>
+            </span>
           </div>
-          <div class="version-row">
+          <div class="version-item">
             <span class="version-label">最新版本</span>
             <span class="version-value" :class="{ 'has-update': versionInfo.hasUpdate }">
-              {{ versionInfo.latest || '...' }}
-              <el-tag v-if="versionInfo.hasUpdate" type="danger" size="small" effect="dark" style="margin-left: 4px;">NEW</el-tag>
+              {{ versionInfo.latest }}
+              <el-tag v-if="versionInfo.latestCommit" size="small" :type="versionInfo.hasUpdate ? 'danger' : 'info'" style="margin-left: 4px;">{{ versionInfo.latestCommit }}</el-tag>
             </span>
           </div>
         </div>
@@ -146,7 +149,7 @@ import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useUserStore } from '../stores/user'
 import { ElMessageBox } from 'element-plus'
-import { getSystemInfo, checkUpdate } from '../api'
+import { checkUpdate } from '../api'
 
 const router = useRouter()
 const userStore = useUserStore()
@@ -154,35 +157,32 @@ const isCollapse = ref(false)
 
 // 版本信息
 const versionInfo = ref({
-  current: '',
-  latest: '',
+  current: '...',
+  currentCommit: '',
+  latest: '...',
+  latestCommit: '',
   hasUpdate: false
 })
 
 // 获取版本信息
 const fetchVersionInfo = async () => {
   try {
-    // 获取当前版本
-    const sysRes = await getSystemInfo()
-    if (sysRes.success && sysRes.data) {
-      versionInfo.value.current = sysRes.data.system_version || '1.0.0'
-    }
-    
-    // 检查更新获取最新版本
     const updateRes = await checkUpdate()
     if (updateRes.success && updateRes.data) {
-      versionInfo.value.latest = updateRes.data.latest_version || versionInfo.value.current
+      versionInfo.value.current = updateRes.data.current_version || '1.0.0'
+      versionInfo.value.currentCommit = updateRes.data.current_commit || ''
+      versionInfo.value.latest = updateRes.data.latest_version || updateRes.data.current_version
+      versionInfo.value.latestCommit = updateRes.data.latest_commit || ''
       versionInfo.value.hasUpdate = updateRes.data.has_update || false
     }
   } catch (e) {
     console.error('获取版本信息失败:', e)
-    versionInfo.value.current = '1.0.0'
-    versionInfo.value.latest = '1.0.0'
   }
 }
 
 onMounted(() => {
   fetchVersionInfo()
+})
 })
 
 const handleCommand = async (command) => {
@@ -213,43 +213,52 @@ const handleCommand = async (command) => {
   overflow-y: auto;
 }
 
-/* 底部版本信息 - 展开状态 */
+/* 底部版本面板 */
 .sidebar-footer {
-  padding: 12px 16px;
+  padding: 12px;
   border-top: 1px solid rgba(255, 255, 255, 0.1);
-  background: rgba(0, 0, 0, 0.2);
+  background: rgba(0, 0, 0, 0.15);
 }
 
-.version-info {
-  font-size: 12px;
+.version-panel {
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 6px;
+  padding: 8px 12px;
 }
 
-.version-row {
+.version-item {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 4px 0;
+  padding: 6px 0;
+  font-size: 12px;
+}
+
+.version-item:not(:last-child) {
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
 }
 
 .version-label {
-  color: rgba(255, 255, 255, 0.5);
+  color: rgba(255, 255, 255, 0.6);
 }
 
 .version-value {
-  color: rgba(255, 255, 255, 0.8);
+  color: #409eff;
   font-family: 'Monaco', 'Menlo', monospace;
+  display: flex;
+  align-items: center;
 }
 
 .version-value.has-update {
   color: #f56c6c;
 }
 
-/* 底部版本信息 - 折叠状态 */
+/* 折叠状态 */
 .sidebar-footer-collapsed {
   padding: 12px 0;
   text-align: center;
   border-top: 1px solid rgba(255, 255, 255, 0.1);
-  background: rgba(0, 0, 0, 0.2);
+  background: rgba(0, 0, 0, 0.15);
 }
 
 .version-badge {
