@@ -199,6 +199,70 @@ class Database {
         return $this->execute($sql, $params);
     }
 
+    /**
+     * 通用插入方法
+     * @param string $table 表名
+     * @param array $data 数据数组，如 ['name' => 'test', 'value' => 123]
+     * @return int 新插入行的ID
+     */
+    public function insert(string $table, array $data): int {
+        if (empty($data)) {
+            throw new Exception("Insert data cannot be empty");
+        }
+        
+        $columns = array_keys($data);
+        $placeholders = array_fill(0, count($columns), '?');
+        
+        $sql = sprintf(
+            "INSERT INTO `%s` (`%s`) VALUES (%s)",
+            $table,
+            implode('`, `', $columns),
+            implode(', ', $placeholders)
+        );
+        
+        $stmt = $this->pdo->prepare($sql);
+        $stmt->execute(array_values($data));
+        return (int)$this->pdo->lastInsertId();
+    }
+
+    /**
+     * 通用更新方法
+     * @param string $table 表名
+     * @param array $data 要更新的数据
+     * @param array $where 条件数组
+     * @return int 影响的行数
+     */
+    public function update(string $table, array $data, array $where): int {
+        if (empty($data)) {
+            throw new Exception("Update data cannot be empty");
+        }
+        if (empty($where)) {
+            throw new Exception("Update without conditions is not allowed");
+        }
+        
+        $setClauses = [];
+        $params = [];
+        foreach ($data as $column => $value) {
+            $setClauses[] = "`{$column}` = ?";
+            $params[] = $value;
+        }
+        
+        $conditions = [];
+        foreach ($where as $column => $value) {
+            $conditions[] = "`{$column}` = ?";
+            $params[] = $value;
+        }
+        
+        $sql = sprintf(
+            "UPDATE `%s` SET %s WHERE %s",
+            $table,
+            implode(', ', $setClauses),
+            implode(' AND ', $conditions)
+        );
+        
+        return $this->execute($sql, $params);
+    }
+
     // ==================== 配置相关 ====================
     
     public function getConfig($key, $default = null) {

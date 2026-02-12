@@ -44,7 +44,7 @@ class WebhookController extends BaseController
         $id = $this->db->insert('webhooks', [
             'name' => $name,
             'url' => $url,
-            'events' => json_encode($events),
+            'event_types' => json_encode($events),
             'secret' => $secret,
             'enabled' => $enabled ? 1 : 0,
             'created_at' => date('Y-m-d H:i:s'),
@@ -73,7 +73,7 @@ class WebhookController extends BaseController
             }
             $data['url'] = $url;
         }
-        if ($this->param('events') !== null) $data['events'] = json_encode($this->param('events'));
+        if ($this->param('events') !== null) $data['event_types'] = json_encode($this->param('events'));
         if ($this->param('secret') !== null) $data['secret'] = $this->param('secret');
         if ($this->param('enabled') !== null) $data['enabled'] = $this->param('enabled') ? 1 : 0;
         
