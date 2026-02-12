@@ -221,7 +221,7 @@ class NamemartController extends BaseController
             'address' => $address,
             'city' => $this->requiredParam('city', '城市不能为空'),
             'state' => $state ?: '',
-            'country' => $country ?: 'US',
+            'country_code' => $country ?: 'US',
             'zip_code' => $zipCode ?: '',
             'org' => $this->param('org', ''),
             'template_name' => $this->param('template_name', 'DefaultTemplate'),
@@ -231,8 +231,12 @@ class NamemartController extends BaseController
         try {
             $result = $this->getNamemart()->createContact($data);
             
-            $this->audit('namemart_create_contact', 'namemart', null, ['email' => $data['email']]);
-            $this->success($result, '联系人创建成功');
+            if ($result['success']) {
+                $this->audit('namemart_create_contact', 'namemart', $result['contact_id'] ?? null, ['email' => $data['email']]);
+                $this->success($result, '联系人创建成功');
+            } else {
+                $this->error($result['message'] ?? '创建联系人失败');
+            }
         } catch (Exception $e) {
             $this->error('创建失败: ' . $e->getMessage());
         }
