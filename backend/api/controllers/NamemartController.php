@@ -220,9 +220,9 @@ class NamemartController extends BaseController
             'tel_area_code' => $this->param('tel_area_code', ''),
             'address' => $address,
             'city' => $this->requiredParam('city', '城市不能为空'),
-            'state' => $state ?: '',
+            'province' => $state ?: '',
             'country_code' => $country ?: 'US',
-            'zip_code' => $zipCode ?: '',
+            'post_code' => $zipCode ?: '',
             'org' => $this->param('org', ''),
             'template_name' => $this->param('template_name', 'DefaultTemplate'),
             'contact_type' => $this->param('contact_type', 0)
