@@ -148,7 +148,12 @@ $router->group(['prefix' => '/api/v2'], function($router) {
 });
 
 // 处理旧版兼容性 - 支持 action 参数方式
-$input = json_decode(file_get_contents('php://input'), true) ?: [];
+// 注意: php://input 只能读取一次，需要缓存供后续控制器使用
+$rawInput = file_get_contents('php://input');
+$GLOBALS['_RAW_INPUT'] = $rawInput; // 保存原始输入供控制器使用
+$input = json_decode($rawInput, true) ?: [];
+// 将 JSON body 数据合并到 $_POST，供控制器读取
+$_POST = array_merge($_POST, $input);
 $action = $_GET['action'] ?? $_POST['action'] ?? $input['action'] ?? '';
 
 if (!empty($action)) {

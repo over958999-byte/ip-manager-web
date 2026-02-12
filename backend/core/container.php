@@ -157,7 +157,22 @@ class Container {
             
             // 优先使用传入的参数
             if (array_key_exists($name, $primitives)) {
-                $dependencies[] = $primitives[$name];
+                $value = $primitives[$name];
+                // 对基本类型进行类型转换
+                $type = $parameter->getType();
+                if ($type !== null && $type->isBuiltin()) {
+                    $typeName = $type->getName();
+                    if ($typeName === 'int') {
+                        $value = (int) $value;
+                    } elseif ($typeName === 'float') {
+                        $value = (float) $value;
+                    } elseif ($typeName === 'bool') {
+                        $value = filter_var($value, FILTER_VALIDATE_BOOLEAN);
+                    } elseif ($typeName === 'string') {
+                        $value = (string) $value;
+                    }
+                }
+                $dependencies[] = $value;
                 continue;
             }
             

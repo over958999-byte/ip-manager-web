@@ -67,7 +67,9 @@ abstract class BaseController
      */
     protected function getInput(): array
     {
-        $input = json_decode(file_get_contents('php://input'), true) ?? [];
+        // 优先使用缓存的原始输入（php://input 只能读取一次）
+        $rawInput = $GLOBALS['_RAW_INPUT'] ?? file_get_contents('php://input');
+        $input = json_decode($rawInput, true) ?? [];
         return array_merge($_GET, $_POST, $input);
     }
     
