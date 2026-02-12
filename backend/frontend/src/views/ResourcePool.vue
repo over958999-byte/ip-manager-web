@@ -824,14 +824,30 @@
           <el-col :span="8">
             <el-form-item label="国家" required>
               <el-select v-model="nmContactDialog.form.country_code" style="width: 100%;">
-                <el-option value="SG" label="新加坡 (SG)" />
-                <el-option value="US" label="美国 (US)" />
-                <el-option value="HK" label="香港 (HK)" />
-                <el-option value="JP" label="日本 (JP)" />
-                <el-option value="CN" label="中国 (CN)" />
-                <el-option value="GB" label="英国 (GB)" />
-                <el-option value="AU" label="澳大利亚 (AU)" />
-                <el-option value="CA" label="加拿大 (CA)" />
+                <el-option-group label="亚洲">
+                  <el-option value="SG" label="新加坡 (SG)" />
+                  <el-option value="HK" label="香港 (HK)" />
+                  <el-option value="JP" label="日本 (JP)" />
+                  <el-option value="CN" label="中国 (CN)" />
+                </el-option-group>
+                <el-option-group label="北美洲">
+                  <el-option value="US" label="美国 (US)" />
+                  <el-option value="CA" label="加拿大 (CA)" />
+                  <el-option value="MX" label="墨西哥 (MX)" />
+                </el-option-group>
+                <el-option-group label="南美洲">
+                  <el-option value="BR" label="巴西 (BR)" />
+                  <el-option value="AR" label="阿根廷 (AR)" />
+                  <el-option value="CL" label="智利 (CL)" />
+                  <el-option value="CO" label="哥伦比亚 (CO)" />
+                  <el-option value="PE" label="秘鲁 (PE)" />
+                </el-option-group>
+                <el-option-group label="欧洲">
+                  <el-option value="GB" label="英国 (GB)" />
+                </el-option-group>
+                <el-option-group label="大洋洲">
+                  <el-option value="AU" label="澳大利亚 (AU)" />
+                </el-option-group>
               </el-select>
             </el-form-item>
           </el-col>
@@ -1947,6 +1963,97 @@ const countryContactData = {
     postCodes: ['M5X1A9', 'H3B4W5', 'V6C3L6', 'T2P3J4', 'R3B3K6'],
     telAreaCode: '1',
     phones: ['4161234567', '5141234567', '6041234567', '4031234567', '2041234567']
+  },
+  // 美洲国家
+  MX: {
+    names: [
+      { first: 'Carlos', last: 'Garcia' },
+      { first: 'Miguel', last: 'Rodriguez' },
+      { first: 'Jose', last: 'Martinez' },
+      { first: 'Luis', last: 'Hernandez' },
+      { first: 'Juan', last: 'Lopez' }
+    ],
+    provinces: ['Ciudad de Mexico', 'Jalisco', 'Nuevo Leon', 'Veracruz', 'Puebla'],
+    cities: ['Mexico City', 'Guadalajara', 'Monterrey', 'Veracruz', 'Puebla'],
+    streets: ['Av. Reforma 222', 'Av. Chapultepec 100', 'Av. Insurgentes Sur 500', 'Calle Madero 45', 'Paseo de la Reforma 300'],
+    postCodes: ['06600', '44100', '64000', '91700', '72000'],
+    telAreaCode: '52',
+    phones: ['5512345678', '3312345678', '8112345678', '2291234567', '2221234567']
+  },
+  BR: {
+    names: [
+      { first: 'Lucas', last: 'Silva' },
+      { first: 'Gabriel', last: 'Santos' },
+      { first: 'Pedro', last: 'Oliveira' },
+      { first: 'Matheus', last: 'Souza' },
+      { first: 'Rafael', last: 'Ferreira' }
+    ],
+    provinces: ['Sao Paulo', 'Rio de Janeiro', 'Minas Gerais', 'Bahia', 'Parana'],
+    cities: ['Sao Paulo', 'Rio de Janeiro', 'Belo Horizonte', 'Salvador', 'Curitiba'],
+    streets: ['Av. Paulista 1000', 'Av. Atlantica 500', 'Av. Afonso Pena 200', 'Av. Sete de Setembro 100', 'Rua XV de Novembro 300'],
+    postCodes: ['01310100', '22021001', '30130000', '40060001', '80020310'],
+    telAreaCode: '55',
+    phones: ['11912345678', '21912345678', '31912345678', '71912345678', '41912345678']
+  },
+  AR: {
+    names: [
+      { first: 'Santiago', last: 'Gonzalez' },
+      { first: 'Mateo', last: 'Rodriguez' },
+      { first: 'Nicolas', last: 'Fernandez' },
+      { first: 'Benjamin', last: 'Lopez' },
+      { first: 'Tomas', last: 'Martinez' }
+    ],
+    provinces: ['Buenos Aires', 'Cordoba', 'Santa Fe', 'Mendoza', 'Tucuman'],
+    cities: ['Buenos Aires', 'Cordoba', 'Rosario', 'Mendoza', 'San Miguel de Tucuman'],
+    streets: ['Av. 9 de Julio 1000', 'Av. Colon 500', 'Av. Pellegrini 200', 'Av. San Martin 100', 'Av. Aconquija 300'],
+    postCodes: ['C1043AAQ', 'X5000', 'S2000', 'M5500', 'T4000'],
+    telAreaCode: '54',
+    phones: ['1112345678', '3512345678', '3411234567', '2611234567', '3811234567']
+  },
+  CL: {
+    names: [
+      { first: 'Sebastian', last: 'Munoz' },
+      { first: 'Matias', last: 'Diaz' },
+      { first: 'Nicolas', last: 'Soto' },
+      { first: 'Cristobal', last: 'Rojas' },
+      { first: 'Vicente', last: 'Reyes' }
+    ],
+    provinces: ['Santiago', 'Valparaiso', 'Biobio', 'Maule', 'Araucania'],
+    cities: ['Santiago', 'Valparaiso', 'Concepcion', 'Talca', 'Temuco'],
+    streets: ['Av. Libertador Bernardo OHiggins 1000', 'Av. Brasil 500', 'Av. OHiggins 200', 'Av. Isidoro del Solar 100', 'Av. Alemania 300'],
+    postCodes: ['8320000', '2340000', '4030000', '3460000', '4780000'],
+    telAreaCode: '56',
+    phones: ['912345678', '322345678', '412345678', '712345678', '452345678']
+  },
+  CO: {
+    names: [
+      { first: 'Santiago', last: 'Garcia' },
+      { first: 'Samuel', last: 'Martinez' },
+      { first: 'Nicolas', last: 'Rodriguez' },
+      { first: 'Alejandro', last: 'Lopez' },
+      { first: 'Daniel', last: 'Hernandez' }
+    ],
+    provinces: ['Bogota', 'Antioquia', 'Valle del Cauca', 'Atlantico', 'Santander'],
+    cities: ['Bogota', 'Medellin', 'Cali', 'Barranquilla', 'Bucaramanga'],
+    streets: ['Carrera 7 No 71-52', 'Calle 10 No 43-12', 'Av. Colombia No 5-20', 'Calle 72 No 54-30', 'Carrera 33 No 48-50'],
+    postCodes: ['110231', '050010', '760001', '080001', '680001'],
+    telAreaCode: '57',
+    phones: ['3112345678', '3042345678', '3152345678', '3002345678', '3162345678']
+  },
+  PE: {
+    names: [
+      { first: 'Diego', last: 'Garcia' },
+      { first: 'Sebastian', last: 'Torres' },
+      { first: 'Rodrigo', last: 'Flores' },
+      { first: 'Alejandro', last: 'Chavez' },
+      { first: 'Fernando', last: 'Ruiz' }
+    ],
+    provinces: ['Lima', 'Arequipa', 'La Libertad', 'Piura', 'Cusco'],
+    cities: ['Lima', 'Arequipa', 'Trujillo', 'Piura', 'Cusco'],
+    streets: ['Av. Javier Prado Este 1000', 'Av. Ejercito 500', 'Av. Espana 200', 'Av. Grau 100', 'Av. El Sol 300'],
+    postCodes: ['15023', '04001', '13001', '20001', '08001'],
+    telAreaCode: '51',
+    phones: ['912345678', '952345678', '942345678', '932345678', '922345678']
   }
 }
 
