@@ -45,7 +45,23 @@ set_error_handler(function(int $errno, string $errstr, string $errfile, int $err
 
 // 设置响应头
 header('Content-Type: application/json; charset=UTF-8');
-header('Access-Control-Allow-Origin: *');
+
+// CORS 配置 - 支持携带 cookie
+$origin = $_SERVER['HTTP_ORIGIN'] ?? '';
+$allowedOrigins = ['http://localhost', 'http://127.0.0.1', 'https://localhost', 'https://127.0.0.1'];
+
+// 动态匹配 localhost 任意端口
+if (preg_match('/^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/', $origin)) {
+    header('Access-Control-Allow-Origin: ' . $origin);
+    header('Access-Control-Allow-Credentials: true');
+} elseif (empty($origin)) {
+    // 同源请求，不需要 CORS 头
+} else {
+    // 生产环境：设置你的实际域名
+    header('Access-Control-Allow-Origin: ' . $origin);
+    header('Access-Control-Allow-Credentials: true');
+}
+
 header('Access-Control-Allow-Methods: GET, POST, PUT, DELETE, OPTIONS');
 header('Access-Control-Allow-Headers: Content-Type, Authorization, X-Requested-With, X-API-Token, X-CSRF-Token');
 header('Access-Control-Max-Age: 86400');
