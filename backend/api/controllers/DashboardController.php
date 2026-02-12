@@ -44,13 +44,13 @@ class DashboardController extends BaseController
     {
         $debug = [];
         
-        // 跳转规则统计 - 使用 status='active' 和 visit_count
+        // 跳转规则统计 - 使用 enabled=1 和 total_clicks
         try {
             $jumpStats = $this->db->fetch(
                 "SELECT 
                     COUNT(*) as total,
-                    SUM(CASE WHEN status = 'active' THEN 1 ELSE 0 END) as active,
-                    COALESCE(SUM(visit_count), 0) as total_clicks
+                    SUM(CASE WHEN enabled = 1 THEN 1 ELSE 0 END) as active,
+                    COALESCE(SUM(total_clicks), 0) as total_clicks
                 FROM jump_rules"
             ) ?: ['total' => 0, 'active' => 0, 'total_clicks' => 0];
             $debug['jump_rules'] = 'ok';
@@ -181,14 +181,14 @@ class DashboardController extends BaseController
             ];
         }
         
-        // 地区分布统计 - 注意: 字段名是 country_code 不是 country
+        // 地区分布统计 - 使用 country 字段
         $regionStats = $this->db->fetchAll(
             "SELECT 
-                COALESCE(country_code, 'Unknown') as name,
+                COALESCE(country, 'Unknown') as name,
                 COUNT(*) as value
             FROM jump_logs 
             WHERE visited_at >= DATE_SUB(NOW(), INTERVAL 7 DAY)
-            GROUP BY country_code
+            GROUP BY country
             ORDER BY value DESC
             LIMIT 10"
         );
@@ -197,14 +197,14 @@ class DashboardController extends BaseController
             $regionStats = [['name' => 'Unknown', 'value' => 0]];
         }
         
-        // 热门规则统计 - 使用 visit_count 和 status='active'
+        // 热门规则统计 - 使用 total_clicks 和 enabled=1
         $topRules = $this->db->fetchAll(
             "SELECT 
-                COALESCE(name, source_path) as name,
-                visit_count as value
+                COALESCE(title, match_key) as name,
+                total_clicks as value
             FROM jump_rules 
-            WHERE status = 'active'
-            ORDER BY visit_count DESC
+            WHERE enabled = 1
+            ORDER BY total_clicks DESC
             LIMIT 10"
         );
         

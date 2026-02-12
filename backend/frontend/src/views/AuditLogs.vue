@@ -85,11 +85,11 @@
           </template>
         </el-table-column>
         <el-table-column prop="resource_id" label="资源ID" width="150" show-overflow-tooltip />
-        <el-table-column prop="ip_address" label="IP地址" width="140" />
-        <el-table-column prop="result" label="结果" width="80">
+        <el-table-column prop="ip" label="IP地址" width="140" />
+        <el-table-column prop="status" label="结果" width="80">
           <template #default="{ row }">
-            <el-tag :type="row.result === 'success' ? 'success' : 'danger'" size="small">
-              {{ row.result === 'success' ? '成功' : '失败' }}
+            <el-tag :type="row.status === 'success' ? 'success' : 'danger'" size="small">
+              {{ row.status === 'success' ? '成功' : '失败' }}
             </el-tag>
           </template>
         </el-table-column>
@@ -130,7 +130,7 @@
         <el-descriptions-item label="操作时间">{{ formatTime(currentLog.created_at) }}</el-descriptions-item>
         <el-descriptions-item label="操作用户">{{ currentLog.username }}</el-descriptions-item>
         <el-descriptions-item label="操作类型">{{ getActionLabel(currentLog.action) }}</el-descriptions-item>
-        <el-descriptions-item label="IP地址">{{ currentLog.ip_address }}</el-descriptions-item>
+        <el-descriptions-item label="IP地址">{{ currentLog.ip }}</el-descriptions-item>
       </el-descriptions>
       
       <el-divider />
