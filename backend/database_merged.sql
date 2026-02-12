@@ -1633,17 +1633,23 @@ CALL safe_add_index('short_links', 'idx_code_enabled', 'code, enabled');
 DROP PROCEDURE IF EXISTS safe_add_index;
 
 -- =====================================================
--- 第十八部分: 读写分离健康检查视图 (来自 migrate_database_v2.sql)
+-- 第十八部分: 读写分离健康检查存储过程 (来自 migrate_database_v2.sql)
 -- =====================================================
 
-CREATE OR REPLACE VIEW v_replication_status AS
-SELECT 
-    @@hostname AS server,
-    @@read_only AS is_readonly,
-    @@server_id AS server_id,
-    (SELECT COUNT(*) FROM information_schema.PROCESSLIST WHERE COMMAND != 'Sleep') AS active_connections,
-    (SELECT SUM(VARIABLE_VALUE) FROM performance_schema.global_status 
-     WHERE VARIABLE_NAME IN ('Com_select', 'Com_insert', 'Com_update', 'Com_delete')) AS total_queries;
+-- 注意: MySQL 视图不支持系统变量，改用存储过程
+DROP PROCEDURE IF EXISTS sp_get_replication_status;
+DELIMITER //
+CREATE PROCEDURE sp_get_replication_status()
+BEGIN
+    SELECT 
+        @@hostname AS server,
+        @@read_only AS is_readonly,
+        @@server_id AS server_id,
+        (SELECT COUNT(*) FROM information_schema.PROCESSLIST WHERE COMMAND != 'Sleep') AS active_connections,
+        (SELECT SUM(VARIABLE_VALUE) FROM performance_schema.global_status 
+         WHERE VARIABLE_NAME IN ('Com_select', 'Com_insert', 'Com_update', 'Com_delete')) AS total_queries;
+END //
+DELIMITER ;
 
 -- =====================================================
 -- 完成
