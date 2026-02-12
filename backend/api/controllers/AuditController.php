@@ -17,7 +17,8 @@ class AuditController extends BaseController
         
         $page = max(1, (int)($this->param('page') ?? 1));
         $limit = min(100, (int)($this->param('limit') ?? 20));
-        $action = $this->param('action');
+        // 使用 filter_action 避免与 API 路由的 action 参数冲突
+        $filterAction = $this->param('filter_action') ?? $this->param('action_type');
         $username = $this->param('username') ?? $this->param('user');  // 支持两种参数名
         $resourceType = $this->param('resource_type');
         $ip = $this->param('ip');
@@ -29,9 +30,11 @@ class AuditController extends BaseController
         $where = [];
         $params = [];
         
-        if ($action) {
+        // 只有当 filter_action 是有效的审计操作时才过滤
+        // 排除 API 路由参数 audit_logs, audit_logs_export 等
+        if ($filterAction && !in_array($filterAction, ['audit_logs', 'audit_logs_export'])) {
             $where[] = "action LIKE ?";
-            $params[] = "%{$action}%";
+            $params[] = "%{$filterAction}%";
         }
         
         if ($username) {
@@ -124,7 +127,8 @@ class AuditController extends BaseController
     {
         $this->requireLogin();
         
-        $action = $this->param('action');
+        // 使用 filter_action 避免与 API 路由的 action 参数冲突
+        $filterAction = $this->param('filter_action') ?? $this->param('action_type');
         $username = $this->param('username') ?? $this->param('user');
         $startDate = $this->param('start_date');
         $endDate = $this->param('end_date');
@@ -133,9 +137,10 @@ class AuditController extends BaseController
         $where = [];
         $params = [];
         
-        if ($action) {
+        // 只有当 filter_action 是有效的审计操作时才过滤
+        if ($filterAction && !in_array($filterAction, ['audit_logs', 'audit_logs_export'])) {
             $where[] = "action LIKE ?";
-            $params[] = "%{$action}%";
+            $params[] = "%{$filterAction}%";
         }
         
         if ($username) {
