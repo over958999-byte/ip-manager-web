@@ -366,7 +366,7 @@ if (!empty($action)) {
         // 替换 URI 中的参数 - 从 GET、POST 和 JSON body 中查找
         if (preg_match_all('/\{(\w+)\}/', $uri, $matches)) {
             foreach ($matches[1] as $param) {
-                $value = $_GET[$param] ?? $_POST[$param] ?? $input[$param] ?? '';
+                $value = (string)($_GET[$param] ?? $_POST[$param] ?? $input[$param] ?? '');
                 $uri = str_replace('{' . $param . '}', $value, $uri);
             }
         }
