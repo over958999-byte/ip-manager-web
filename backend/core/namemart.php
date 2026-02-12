@@ -153,13 +153,35 @@ class NamemartService {
      */
     public function createContact(array $contactData): array {
         $result = $this->request('/contact/create', $contactData);
-        if ($result['code'] === 1000 && isset($result['data']['contact_id'])) {
+        
+        // 记录API原始返回，便于调试
+        error_log('Namemart createContact response: ' . json_encode($result));
+        
+        if (isset($result['code']) && $result['code'] === 1000) {
+            // API 文档返回结构: { code: 1000, data: { contact_id: "xxx" } }
+            // 也可能直接是: { code: 1000, contact_id: "xxx" }
+            $contactId = $result['data']['contact_id'] 
+                ?? $result['contact_id'] 
+                ?? $result['data']['contactId']
+                ?? $result['contactId']
+                ?? null;
+            
+            if ($contactId) {
+                return [
+                    'success' => true,
+                    'contact_id' => $contactId
+                ];
+            }
+            
+            // 返回整个 data 让前端看看实际结构
             return [
                 'success' => true,
-                'contact_id' => $result['data']['contact_id']
+                'contact_id' => null,
+                'raw_data' => $result['data'] ?? $result,
+                'message' => 'API返回成功但未找到contact_id字段'
             ];
         }
-        return ['success' => false, 'message' => $result['message'] ?? '创建联系人失败'];
+        return ['success' => false, 'message' => $result['message'] ?? '创建联系人失败', 'raw' => $result];
     }
     
     /**
