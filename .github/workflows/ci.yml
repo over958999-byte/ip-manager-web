@@ -126,7 +126,7 @@ jobs:
 
       - name: Initialize test database
         run: |
-          mysql -h 127.0.0.1 -u root -proot ip_manager_test < backend/database_full.sql
+          mysql -h 127.0.0.1 -u root -proot ip_manager_test < backend/database_merged.sql
         env:
           MYSQL_PWD: root
 
