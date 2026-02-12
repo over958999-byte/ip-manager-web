@@ -84,7 +84,7 @@ abstract class BaseController
     /**
      * 获取必填参数
      */
-    protected function requiredParam(string $key, string $message = null)
+    protected function requiredParam(string $key, ?string $message = null)
     {
         $value = $this->param($key);
         if ($value === null || $value === '') {
@@ -202,7 +202,7 @@ abstract class BaseController
     /**
      * 记录审计日志（自动脱敏敏感信息）
      */
-    protected function audit(string $action, string $resourceType = null, $resourceId = null, array $details = []): void
+    protected function audit(string $action, ?string $resourceType = null, $resourceId = null, array $details = []): void
     {
         try {
             // 确保表存在
