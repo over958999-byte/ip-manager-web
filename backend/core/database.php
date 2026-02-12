@@ -39,6 +39,87 @@ class Database {
         } catch (PDOException $e) {
             throw new Exception("数据库连接失败: " . $e->getMessage());
         }
+        
+        // 自动初始化核心表
+        $this->initCoreTables();
+    }
+    
+    /**
+     * 初始化核心表（如果不存在则创建）
+     */
+    private function initCoreTables(): void
+    {
+        static $initialized = false;
+        if ($initialized) return;
+        
+        try {
+            // config 表
+            $this->pdo->exec("
+                CREATE TABLE IF NOT EXISTS config (
+                    id INT AUTO_INCREMENT PRIMARY KEY,
+                    `key` VARCHAR(100) NOT NULL,
+                    `value` TEXT,
+                    description VARCHAR(255),
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                    UNIQUE KEY unique_key (`key`)
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+            ");
+            
+            // users 表
+            $this->pdo->exec("
+                CREATE TABLE IF NOT EXISTS users (
+                    id INT AUTO_INCREMENT PRIMARY KEY,
+                    username VARCHAR(50) NOT NULL,
+                    password_hash VARCHAR(255) NOT NULL,
+                    email VARCHAR(255),
+                    role ENUM('admin', 'operator', 'viewer') DEFAULT 'viewer',
+                    status ENUM('active', 'inactive', 'locked') DEFAULT 'active',
+                    last_login_at TIMESTAMP NULL,
+                    login_count INT DEFAULT 0,
+                    totp_enabled TINYINT(1) DEFAULT 0,
+                    totp_secret VARCHAR(100),
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                    UNIQUE KEY unique_username (username)
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+            ");
+            
+            // audit_logs 表
+            $this->pdo->exec("
+                CREATE TABLE IF NOT EXISTS audit_logs (
+                    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+                    user_id INT,
+                    username VARCHAR(50),
+                    action VARCHAR(100) NOT NULL,
+                    resource_type VARCHAR(50),
+                    resource_id VARCHAR(100),
+                    old_value JSON,
+                    new_value JSON,
+                    ip VARCHAR(45),
+                    user_agent TEXT,
+                    status VARCHAR(20) DEFAULT 'success',
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    INDEX idx_user (user_id),
+                    INDEX idx_action (action),
+                    INDEX idx_created (created_at)
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+            ");
+            
+            // 检查是否有默认管理员
+            $count = $this->pdo->query("SELECT COUNT(*) FROM users WHERE username = 'admin'")->fetchColumn();
+            if ($count == 0) {
+                $this->pdo->exec("
+                    INSERT INTO users (username, password_hash, email, role, status) 
+                    VALUES ('admin', '\$2y\$10\$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2.uheWG/igi', 'admin@localhost', 'admin', 'active')
+                ");
+            }
+            
+            $initialized = true;
+        } catch (Exception $e) {
+            // 忽略初始化错误，可能表已存在
+            error_log('Database init: ' . $e->getMessage());
+        }
     }
     
     public static function getInstance() {
