@@ -70,16 +70,9 @@
       <!-- 底部信息面板 -->
       <div class="sidebar-footer" v-if="!isCollapse">
         <div class="info-panel">
-          <!-- 在线统计 -->
+          <!-- 在线管理员 -->
           <div class="online-stats">
-            <div class="stat-item">
-              <div class="stat-icon user-icon">👤</div>
-              <div class="stat-info">
-                <div class="stat-label">在线用户:</div>
-                <div class="stat-value">{{ onlineStats.users }}</div>
-              </div>
-            </div>
-            <div class="stat-item">
+            <div class="stat-item full-width">
               <div class="stat-icon admin-icon">👑</div>
               <div class="stat-info">
                 <div class="stat-label">在线管理员:</div>
@@ -95,11 +88,22 @@
             </el-button>
           </div>
           
-          <!-- 版本号 -->
-          <div class="version-row">
-            <span class="version-icon">ℹ️</span>
-            <span class="version-text">当前版本: </span>
-            <span class="version-number">{{ versionInfo.current }}</span>
+          <!-- 版本信息 -->
+          <div class="version-info-box">
+            <div class="version-row">
+              <span class="version-label">当前版本</span>
+              <span class="version-value">
+                {{ versionInfo.current }}
+                <el-tag v-if="versionInfo.currentCommit" size="small" type="info">{{ versionInfo.currentCommit }}</el-tag>
+              </span>
+            </div>
+            <div class="version-row">
+              <span class="version-label">最新版本</span>
+              <span class="version-value" :class="{ 'has-update': versionInfo.hasUpdate }">
+                {{ versionInfo.latest }}
+                <el-tag v-if="versionInfo.latestCommit" size="small" :type="versionInfo.hasUpdate ? 'danger' : 'success'">{{ versionInfo.latestCommit }}</el-tag>
+              </span>
+            </div>
           </div>
         </div>
       </div>
@@ -302,12 +306,14 @@ const configDrawer = ref(false)
 // 版本信息
 const versionInfo = ref({
   current: '...',
+  currentCommit: '',
+  latest: '...',
+  latestCommit: '',
   hasUpdate: false
 })
 
 // 在线统计
 const onlineStats = ref({
-  users: 0,
   admins: 1
 })
 
@@ -404,6 +410,9 @@ const fetchVersionInfo = async () => {
     const updateRes = await checkUpdate()
     if (updateRes.success && updateRes.data) {
       versionInfo.value.current = updateRes.data.current_version || '1.0.0'
+      versionInfo.value.currentCommit = updateRes.data.local_version || ''
+      versionInfo.value.latest = updateRes.data.current_version || '1.0.0'
+      versionInfo.value.latestCommit = updateRes.data.remote_version || ''
       versionInfo.value.hasUpdate = updateRes.data.has_update || false
     }
   } catch (e) {
@@ -474,6 +483,10 @@ const handleCommand = async (command) => {
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
 }
 
+.stat-item.full-width {
+  justify-content: center;
+}
+
 .stat-icon {
   font-size: 24px;
   margin-right: 6px;
@@ -506,28 +519,42 @@ const handleCommand = async (command) => {
   flex: 1;
 }
 
-/* 版本行 */
-.version-row {
+/* 版本信息盒子 */
+.version-info-box {
+  background: #fff;
+  border-radius: 6px;
+  padding: 8px 10px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+}
+
+.version-info-box .version-row {
   display: flex;
   align-items: center;
-  justify-content: center;
+  justify-content: space-between;
   font-size: 12px;
-  color: #666;
-  padding-top: 6px;
-  border-top: 1px dashed #ddd;
+  padding: 4px 0;
 }
 
-.version-icon {
-  margin-right: 4px;
+.version-info-box .version-row:first-child {
+  border-bottom: 1px dashed #eee;
+  padding-bottom: 6px;
+  margin-bottom: 2px;
 }
 
-.version-text {
+.version-info-box .version-label {
   color: #888;
 }
 
-.version-number {
+.version-info-box .version-value {
   color: #409eff;
   font-weight: 500;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.version-info-box .version-value.has-update {
+  color: #f56c6c;
 }
 
 /* 折叠状态 */

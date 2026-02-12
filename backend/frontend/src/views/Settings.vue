@@ -157,12 +157,15 @@
           <el-descriptions :column="1" border size="small">
             <el-descriptions-item label="当前版本">
               {{ systemInfo.version || '1.0.0' }}
-              <el-tag v-if="systemInfo.commit" size="small" style="margin-left: 8px;">
+              <el-tag v-if="systemInfo.commit" size="small" type="info" style="margin-left: 8px;">
                 {{ systemInfo.commit }}
               </el-tag>
             </el-descriptions-item>
-            <el-descriptions-item label="最新版本" v-if="updateInfo.remote_version">
-              {{ updateInfo.remote_version }}
+            <el-descriptions-item label="最新版本">
+              {{ systemInfo.version || '1.0.0' }}
+              <el-tag v-if="updateInfo.remote_version" size="small" :type="updateInfo.has_update ? 'danger' : 'success'" style="margin-left: 8px;">
+                {{ updateInfo.remote_version }}
+              </el-tag>
             </el-descriptions-item>
             <el-descriptions-item label="更新内容" v-if="updateInfo.commit_message">
               <div style="max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
