@@ -67,27 +67,44 @@
         </el-sub-menu>
       </el-menu>
       
-      <!-- 底部版本信息面板 -->
+      <!-- 底部信息面板 -->
       <div class="sidebar-footer" v-if="!isCollapse">
-        <div class="version-panel">
-          <div class="version-item">
-            <span class="version-label">当前版本</span>
-            <span class="version-value">
-              {{ versionInfo.current }}
-              <el-tag v-if="versionInfo.currentCommit" size="small" type="info" style="margin-left: 4px;">{{ versionInfo.currentCommit }}</el-tag>
-            </span>
+        <div class="info-panel">
+          <!-- 在线统计 -->
+          <div class="online-stats">
+            <div class="stat-item">
+              <div class="stat-icon user-icon">👤</div>
+              <div class="stat-info">
+                <div class="stat-label">在线用户:</div>
+                <div class="stat-value">{{ onlineStats.users }}</div>
+              </div>
+            </div>
+            <div class="stat-item">
+              <div class="stat-icon admin-icon">👑</div>
+              <div class="stat-info">
+                <div class="stat-label">在线管理员:</div>
+                <div class="stat-value">{{ onlineStats.admins }}</div>
+              </div>
+            </div>
           </div>
-          <div class="version-item">
-            <span class="version-label">最新版本</span>
-            <span class="version-value" :class="{ 'has-update': versionInfo.hasUpdate }">
-              {{ versionInfo.latest }}
-              <el-tag v-if="versionInfo.latestCommit" size="small" :type="versionInfo.hasUpdate ? 'danger' : 'info'" style="margin-left: 4px;">{{ versionInfo.latestCommit }}</el-tag>
-            </span>
+          
+          <!-- 按钮行 -->
+          <div class="action-row">
+            <el-button size="small" @click="fetchVersionInfo">
+              <el-icon><Refresh /></el-icon> 更新
+            </el-button>
+          </div>
+          
+          <!-- 版本号 -->
+          <div class="version-row">
+            <span class="version-icon">ℹ️</span>
+            <span class="version-text">当前版本: </span>
+            <span class="version-number">{{ versionInfo.current }}</span>
           </div>
         </div>
       </div>
       <div class="sidebar-footer-collapsed" v-else>
-        <el-tooltip :content="`v${versionInfo.current}${versionInfo.hasUpdate ? ' (有更新)' : ''}`" placement="right">
+        <el-tooltip :content="`v${versionInfo.current}`" placement="right">
           <el-badge :is-dot="versionInfo.hasUpdate" class="version-badge">
             <el-icon><InfoFilled /></el-icon>
           </el-badge>
@@ -150,6 +167,7 @@ import { useRouter } from 'vue-router'
 import { useUserStore } from '../stores/user'
 import { ElMessageBox } from 'element-plus'
 import { checkUpdate } from '../api'
+import { Refresh } from '@element-plus/icons-vue'
 
 const router = useRouter()
 const userStore = useUserStore()
@@ -158,10 +176,13 @@ const isCollapse = ref(false)
 // 版本信息
 const versionInfo = ref({
   current: '...',
-  currentCommit: '',
-  latest: '...',
-  latestCommit: '',
   hasUpdate: false
+})
+
+// 在线统计
+const onlineStats = ref({
+  users: 0,
+  admins: 1
 })
 
 // 获取版本信息
@@ -170,9 +191,6 @@ const fetchVersionInfo = async () => {
     const updateRes = await checkUpdate()
     if (updateRes.success && updateRes.data) {
       versionInfo.value.current = updateRes.data.current_version || '1.0.0'
-      versionInfo.value.currentCommit = updateRes.data.current_commit || ''
-      versionInfo.value.latest = updateRes.data.latest_version || updateRes.data.current_version
-      versionInfo.value.latestCommit = updateRes.data.latest_commit || ''
       versionInfo.value.hasUpdate = updateRes.data.has_update || false
     }
   } catch (e) {
@@ -213,44 +231,90 @@ const handleCommand = async (command) => {
   overflow-y: auto;
 }
 
-/* 底部版本面板 */
+/* 底部信息面板 */
 .sidebar-footer {
-  padding: 12px;
+  padding: 10px;
   border-top: 1px solid rgba(255, 255, 255, 0.1);
-  background: rgba(0, 0, 0, 0.15);
 }
 
-.version-panel {
-  background: rgba(255, 255, 255, 0.05);
+.info-panel {
+  background: linear-gradient(135deg, #e8f4fc 0%, #f5f9fc 100%);
+  border-radius: 8px;
+  padding: 12px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+/* 在线统计 */
+.online-stats {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.stat-item {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  background: #fff;
   border-radius: 6px;
-  padding: 8px 12px;
+  padding: 8px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
 }
 
-.version-item {
+.stat-icon {
+  font-size: 24px;
+  margin-right: 6px;
+}
+
+.stat-info {
   display: flex;
-  justify-content: space-between;
+  flex-direction: column;
+}
+
+.stat-label {
+  font-size: 11px;
+  color: #666;
+}
+
+.stat-value {
+  font-size: 16px;
+  font-weight: bold;
+  color: #333;
+}
+
+/* 按钮行 */
+.action-row {
+  display: flex;
+  justify-content: center;
+  margin-bottom: 10px;
+}
+
+.action-row .el-button {
+  flex: 1;
+}
+
+/* 版本行 */
+.version-row {
+  display: flex;
   align-items: center;
-  padding: 6px 0;
+  justify-content: center;
   font-size: 12px;
+  color: #666;
+  padding-top: 6px;
+  border-top: 1px dashed #ddd;
 }
 
-.version-item:not(:last-child) {
-  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+.version-icon {
+  margin-right: 4px;
 }
 
-.version-label {
-  color: rgba(255, 255, 255, 0.6);
+.version-text {
+  color: #888;
 }
 
-.version-value {
+.version-number {
   color: #409eff;
-  font-family: 'Monaco', 'Menlo', monospace;
-  display: flex;
-  align-items: center;
-}
-
-.version-value.has-update {
-  color: #f56c6c;
+  font-weight: 500;
 }
 
 /* 折叠状态 */
@@ -258,7 +322,6 @@ const handleCommand = async (command) => {
   padding: 12px 0;
   text-align: center;
   border-top: 1px solid rgba(255, 255, 255, 0.1);
-  background: rgba(0, 0, 0, 0.15);
 }
 
 .version-badge {
