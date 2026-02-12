@@ -947,8 +947,6 @@ CREATE TABLE IF NOT EXISTS shortlinks (
     expires_at TIMESTAMP NULL,
     UNIQUE KEY unique_code (code)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-    UNIQUE KEY unique_visitor (redirect_id, visitor_hash, date)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- 访问日志表(用于分区优化)
 CREATE TABLE IF NOT EXISTS access_logs (
