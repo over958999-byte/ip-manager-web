@@ -348,7 +348,7 @@ class JumpService {
      */
     public function getJumpUrl(string $type, string $matchKey, ?int $domainId = null): string {
         if ($type === self::TYPE_IP) {
-            return 'https://' . $matchKey . '/';
+            return 'http://' . $matchKey . '/';
         }
         
         // 获取域名
@@ -362,12 +362,12 @@ class JumpService {
         
         if (!$domain) {
             $defaultDomain = $this->getDefaultDomain();
-            $domain = $defaultDomain ? $defaultDomain['domain'] : 'https://localhost/j';
+            $domain = $defaultDomain ? $defaultDomain['domain'] : 'http://localhost/j';
         }
         
         // 确保域名有协议前缀
         if (!preg_match('/^https?:\/\//i', $domain)) {
-            $domain = 'https://' . $domain;
+            $domain = 'http://' . $domain;
         }
         
         return rtrim($domain, '/') . '/' . $matchKey;
