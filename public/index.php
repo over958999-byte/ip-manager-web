@@ -14,22 +14,53 @@ $db = Database::getInstance();
 $_pre_host = $_SERVER['HTTP_HOST'] ?? '';
 $_pre_host_without_port = preg_replace('/:\d+$/', '', $_pre_host);
 $_pre_server_ip = $_SERVER['SERVER_ADDR'] ?? $_SERVER['LOCAL_ADDR'] ?? '';
+$_pre_server_port = $_SERVER['SERVER_PORT'] ?? '80';
 $_pre_matched_ip = null;
 $_pre_matched_config = null;
 $_pre_target_url = null;
 
 // 从数据库查找匹配的跳转配置
+// 逻辑：先查纯IP，如果开启了端口匹配则还要匹配端口
 $redirect = $db->getRedirect($_pre_host_without_port);
 if ($redirect && $redirect['enabled']) {
-    $_pre_matched_ip = $_pre_host_without_port;
-    $_pre_matched_config = $redirect;
-    $_pre_target_url = $redirect['url'];
-} else {
-    $redirect = $db->getRedirect($_pre_server_ip);
-    if ($redirect && $redirect['enabled']) {
-        $_pre_matched_ip = $_pre_server_ip;
+    // 检查是否需要端口匹配
+    if (!empty($redirect['port_match_enabled'])) {
+        // 需要端口匹配，检查完整的 IP:端口
+        if ($_pre_host === $_pre_host_without_port . ':' . $_pre_server_port || $_pre_host === $_pre_host_without_port) {
+            // 尝试精确匹配 IP:端口
+            $redirect_port = $db->getRedirect($_pre_host);
+            if ($redirect_port && $redirect_port['enabled']) {
+                $_pre_matched_ip = $_pre_host;
+                $_pre_matched_config = $redirect_port;
+                $_pre_target_url = $redirect_port['url'];
+            }
+        }
+    } else {
+        // 不需要端口匹配，直接使用
+        $_pre_matched_ip = $_pre_host_without_port;
         $_pre_matched_config = $redirect;
         $_pre_target_url = $redirect['url'];
+    }
+}
+
+// 如果还没匹配到，尝试服务器IP
+if (!$_pre_matched_config) {
+    $redirect = $db->getRedirect($_pre_server_ip);
+    if ($redirect && $redirect['enabled']) {
+        if (!empty($redirect['port_match_enabled'])) {
+            // 需要端口匹配
+            $_pre_server_ip_port = $_pre_server_ip . ':' . $_pre_server_port;
+            $redirect_port = $db->getRedirect($_pre_server_ip_port);
+            if ($redirect_port && $redirect_port['enabled']) {
+                $_pre_matched_ip = $_pre_server_ip_port;
+                $_pre_matched_config = $redirect_port;
+                $_pre_target_url = $redirect_port['url'];
+            }
+        } else {
+            $_pre_matched_ip = $_pre_server_ip;
+            $_pre_matched_config = $redirect;
+            $_pre_target_url = $redirect['url'];
+        }
     }
 }
 

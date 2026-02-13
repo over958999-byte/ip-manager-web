@@ -657,8 +657,17 @@ configure_nginx() {
     mkdir -p /etc/nginx/sites-enabled 2>/dev/null || true
 
     cat > /etc/nginx/sites-available/ip-manager << EOF
+# HTTP强制跳转到HTTPS
 server {
     listen 80;
+    server_name ${DOMAIN:-_};
+    
+    # 强制跳转HTTPS
+    return 301 https://\$host\$request_uri;
+}
+
+# HTTPS主配置
+server {
     listen 443 ssl;
     server_name ${DOMAIN:-_};
     root ${INSTALL_DIR}/public;
@@ -774,8 +783,17 @@ configure_nginx_centos() {
     fi
 
     cat > /etc/nginx/conf.d/ip-manager.conf << EOF
+# HTTP强制跳转到HTTPS
 server {
     listen 80;
+    server_name ${DOMAIN:-_};
+    
+    # 强制跳转HTTPS
+    return 301 https://\$host\$request_uri;
+}
+
+# HTTPS主配置
+server {
     listen 443 ssl;
     server_name ${DOMAIN:-_};
     root ${INSTALL_DIR}/public;

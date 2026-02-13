@@ -157,14 +157,15 @@
         </el-table-column>
 
         <!-- 限制条件 -->
-        <el-table-column label="限制" width="120">
+        <el-table-column label="限制" width="150">
           <template #default="{ row }">
             <template v-if="row.rule_type === 'ip'">
+              <el-tag v-if="row.port_match_enabled" type="primary" size="small" style="margin: 1px;">端口匹配</el-tag>
               <el-tag v-if="row.block_desktop" type="danger" size="small" style="margin: 1px;">禁PC</el-tag>
               <el-tag v-if="row.block_ios" type="warning" size="small" style="margin: 1px;">禁iOS</el-tag>
               <el-tag v-if="row.block_android" type="info" size="small" style="margin: 1px;">禁安卓</el-tag>
               <el-tag v-if="row.country_whitelist_enabled" type="success" size="small" style="margin: 1px;">地区限制</el-tag>
-              <span v-if="!row.block_desktop && !row.block_ios && !row.block_android && !row.country_whitelist_enabled" class="text-muted">无</span>
+              <span v-if="!row.port_match_enabled && !row.block_desktop && !row.block_ios && !row.block_android && !row.country_whitelist_enabled" class="text-muted">无</span>
             </template>
             <template v-else>
               <el-tag v-if="row.expire_type === 'permanent'" type="success" size="small">永久</el-tag>
@@ -260,6 +261,15 @@
 
         <!-- 设备限制和国家白名单 (所有类型通用) -->
         <el-divider content-position="left">访问限制</el-divider>
+        
+        <!-- IP类型特有：端口匹配 -->
+        <el-form-item v-if="formDialog.type === 'ip'" label="端口匹配">
+          <el-switch v-model="formDialog.form.port_match_enabled" />
+          <span style="margin-left: 10px; color: #909399; font-size: 12px;">
+            开启后需添加 IP:端口 格式的规则才能匹配特定端口
+          </span>
+        </el-form-item>
+        
         <el-form-item label="禁止设备">
           <el-checkbox v-model="formDialog.form.block_desktop">禁止PC</el-checkbox>
           <el-checkbox v-model="formDialog.form.block_ios">禁止iOS</el-checkbox>
@@ -444,6 +454,7 @@ function getDefaultForm() {
     note: '',
     group_tag: 'default',
     domain_id: defaultDomain?.id || null,
+    port_match_enabled: false,
     block_desktop: false,
     block_ios: false,
     block_android: false,

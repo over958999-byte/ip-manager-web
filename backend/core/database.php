@@ -335,11 +335,12 @@ class Database {
                 'url' => $row['url'],
                 'enabled' => (bool)$row['enabled'],
                 'note' => $row['note'] ?? '',
-                'block_desktop' => (bool)$row['block_desktop'],
-                'block_ios' => (bool)$row['block_ios'],
-                'block_android' => (bool)$row['block_android'],
-                'country_whitelist_enabled' => (bool)$row['country_whitelist_enabled'],
+                'block_desktop' => (bool)($row['block_desktop'] ?? false),
+                'block_ios' => (bool)($row['block_ios'] ?? false),
+                'block_android' => (bool)($row['block_android'] ?? false),
+                'country_whitelist_enabled' => (bool)($row['country_whitelist_enabled'] ?? false),
                 'country_whitelist' => $countryWhitelist ?: [],
+                'port_match_enabled' => (bool)($row['port_match_enabled'] ?? false),
                 'created_at' => $row['created_at'],
                 'updated_at' => $row['updated_at']
             ];
@@ -366,11 +367,12 @@ class Database {
                 'url' => $row['url'],
                 'enabled' => (bool)$row['enabled'],
                 'note' => $row['note'] ?? '',
-                'block_desktop' => (bool)$row['block_desktop'],
-                'block_ios' => (bool)$row['block_ios'],
-                'block_android' => (bool)$row['block_android'],
-                'country_whitelist_enabled' => (bool)$row['country_whitelist_enabled'],
+                'block_desktop' => (bool)($row['block_desktop'] ?? false),
+                'block_ios' => (bool)($row['block_ios'] ?? false),
+                'block_android' => (bool)($row['block_android'] ?? false),
+                'country_whitelist_enabled' => (bool)($row['country_whitelist_enabled'] ?? false),
                 'country_whitelist' => $countryWhitelist ?: [],
+                'port_match_enabled' => (bool)($row['port_match_enabled'] ?? false),
                 'created_at' => $row['created_at'],
                 'updated_at' => $row['updated_at']
             ];
@@ -388,11 +390,12 @@ class Database {
                 'url' => $row['url'],
                 'enabled' => (bool)$row['enabled'],
                 'note' => $row['note'] ?? '',
-                'block_desktop' => (bool)$row['block_desktop'],
-                'block_ios' => (bool)$row['block_ios'],
-                'block_android' => (bool)$row['block_android'],
-                'country_whitelist_enabled' => (bool)$row['country_whitelist_enabled'],
+                'block_desktop' => (bool)($row['block_desktop'] ?? false),
+                'block_ios' => (bool)($row['block_ios'] ?? false),
+                'block_android' => (bool)($row['block_android'] ?? false),
+                'country_whitelist_enabled' => (bool)($row['country_whitelist_enabled'] ?? false),
                 'country_whitelist' => $countryWhitelist ?: [],
+                'port_match_enabled' => (bool)($row['port_match_enabled'] ?? false),
                 'created_at' => $row['created_at']
             ];
         }
@@ -409,7 +412,7 @@ class Database {
         $values = [];
         
         $allowedFields = ['url', 'note', 'enabled', 'block_desktop', 'block_ios', 'block_android', 
-                         'country_whitelist_enabled', 'country_whitelist'];
+                         'country_whitelist_enabled', 'country_whitelist', 'port_match_enabled'];
         
         foreach ($allowedFields as $field) {
             if (isset($data[$field])) {

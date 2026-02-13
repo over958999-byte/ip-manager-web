@@ -812,6 +812,7 @@ CREATE TABLE IF NOT EXISTS redirects (
     redirect_type VARCHAR(10) DEFAULT '302',
     status ENUM('active', 'inactive') DEFAULT 'active',
     enabled TINYINT(1) DEFAULT 1,
+    port_match_enabled TINYINT(1) DEFAULT 0 COMMENT '启用端口匹配(IP:端口访问)',
     visit_count INT DEFAULT 0,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     UNIQUE KEY unique_ip (ip),

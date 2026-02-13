@@ -48,8 +48,8 @@ class IpPoolController extends BaseController
             $expandedIps = $this->parseIpInput($line);
             
             foreach ($expandedIps as $ip) {
-                // 验证 IP 格式
-                if (!filter_var($ip, FILTER_VALIDATE_IP)) {
+                // 验证 IP 格式（支持 IP 或 IP:端口）
+                if (!$this->validateIpOrIpPort($ip)) {
                     $skipped++;
                     continue;
                 }
@@ -149,6 +149,29 @@ class IpPoolController extends BaseController
         
         // 默认: 单个IP
         return [$input];
+    }
+    
+    /**
+     * 验证IP或IP:端口格式
+     * 
+     * @param string $input
+     * @return bool
+     */
+    private function validateIpOrIpPort(string $input): bool
+    {
+        // 格式1: 纯IP
+        if (filter_var($input, FILTER_VALIDATE_IP)) {
+            return true;
+        }
+        
+        // 格式2: IP:端口
+        if (preg_match('/^(.+):(\d+)$/', $input, $matches)) {
+            $ip = $matches[1];
+            $port = (int)$matches[2];
+            return filter_var($ip, FILTER_VALIDATE_IP) && $port > 0 && $port <= 65535;
+        }
+        
+        return false;
     }
     
     /**
