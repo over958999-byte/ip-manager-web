@@ -2,6 +2,8 @@
 
 #===============================================================================
 # 困King分发平台 - Linux一键部署脚本
+# 版本: 2.0.0
+# 更新日期: 2026-02-13
 # 支持系统: Ubuntu 20.04+, Debian 11+, CentOS 7+, Rocky Linux 8+
 # 仓库地址: https://github.com/over958999-byte/ip-manager-web
 # 
@@ -9,6 +11,13 @@
 #   - 智能环境检测: 自动检测已安装的组件，跳过无需安装的部分
 #   - 版本验证: 检测组件版本是否满足最低要求，不满足则重装
 #   - 强制模式: 使用 -f 参数强制重新安装所有组件
+#   - HTTPS支持: 自动生成SSL证书，HTTP强制跳转HTTPS
+#   - 数据库升级: 自动检测并更新数据库结构
+#
+# 新功能:
+#   - IP端口匹配: 支持 IP:端口 格式的跳转规则
+#   - IP范围导入: 支持 38.14.208.66-126 格式批量导入
+#   - CIDR导入: 支持 192.168.1.0/24 格式
 #===============================================================================
 
 set -e
@@ -510,27 +519,32 @@ import_database() {
     
     # 检查表是否已存在
     if mysql -e "SELECT 1 FROM ${DB_NAME}.config LIMIT 1" 2>/dev/null; then
-        log_info "数据库表已存在，检查是否需要迁移..."
-        # 检查 jump_rules 表是否存在，不存在则运行迁移
-        if ! mysql -e "SELECT 1 FROM ${DB_NAME}.jump_rules LIMIT 1" 2>/dev/null; then
-            log_info "运行跳转规则迁移..."
-            if [ -f "backend/migrations/merge_jump_rules.sql" ]; then
-                mysql "$DB_NAME" < backend/migrations/merge_jump_rules.sql
-            fi
-        fi
+        log_info "数据库表已存在，执行结构更新..."
+        
+        # 执行数据库结构更新（添加新字段等）
+        update_database_schema
+        
         return
     fi
     
-    # 使用完整数据库脚本
+    # 使用完整数据库脚本 (database_merged.sql 是最新版本)
+    if [ -f "backend/database_merged.sql" ]; then
+        log_info "使用完整数据库脚本 (database_merged.sql)..."
+        mysql "$DB_NAME" < backend/database_merged.sql
+        log_info "数据库导入完成"
+        return
+    fi
+    
+    # 回退: 使用旧版 database_full.sql
     if [ -f "backend/database_full.sql" ]; then
-        log_info "使用完整数据库脚本 (database_full.sql)..."
+        log_info "使用数据库脚本 (database_full.sql)..."
         mysql < backend/database_full.sql
         log_info "数据库导入完成"
         return
     fi
     
     # 回退: 使用旧版SQL文件（兼容旧仓库版本）
-    log_warn "未找到 database_full.sql，尝试旧版SQL文件..."
+    log_warn "未找到主数据库脚本，尝试旧版SQL文件..."
     
     if [ -f "backend/database.sql" ]; then
         mysql "$DB_NAME" < backend/database.sql
@@ -551,6 +565,48 @@ import_database() {
     log_info "数据库导入完成"
 }
 
+# 更新数据库结构（用于已安装系统的升级）
+update_database_schema() {
+    log_info "检查并更新数据库结构..."
+    
+    # 添加 redirects 表的 port_match_enabled 字段（端口匹配功能）
+    if ! mysql -e "SELECT port_match_enabled FROM ${DB_NAME}.redirects LIMIT 1" 2>/dev/null; then
+        log_info "添加端口匹配字段 (port_match_enabled)..."
+        mysql "$DB_NAME" -e "ALTER TABLE redirects ADD COLUMN port_match_enabled TINYINT(1) DEFAULT 0 COMMENT '启用端口匹配(IP:端口访问)' AFTER enabled;" 2>/dev/null || true
+    fi
+    
+    # 添加 redirects 表的 block_desktop 等字段（设备限制功能）
+    if ! mysql -e "SELECT block_desktop FROM ${DB_NAME}.redirects LIMIT 1" 2>/dev/null; then
+        log_info "添加设备限制字段..."
+        mysql "$DB_NAME" -e "ALTER TABLE redirects ADD COLUMN block_desktop TINYINT(1) DEFAULT 0 AFTER port_match_enabled;" 2>/dev/null || true
+        mysql "$DB_NAME" -e "ALTER TABLE redirects ADD COLUMN block_ios TINYINT(1) DEFAULT 0 AFTER block_desktop;" 2>/dev/null || true
+        mysql "$DB_NAME" -e "ALTER TABLE redirects ADD COLUMN block_android TINYINT(1) DEFAULT 0 AFTER block_ios;" 2>/dev/null || true
+    fi
+    
+    # 添加 redirects 表的国家白名单字段
+    if ! mysql -e "SELECT country_whitelist_enabled FROM ${DB_NAME}.redirects LIMIT 1" 2>/dev/null; then
+        log_info "添加国家白名单字段..."
+        mysql "$DB_NAME" -e "ALTER TABLE redirects ADD COLUMN country_whitelist_enabled TINYINT(1) DEFAULT 0 AFTER block_android;" 2>/dev/null || true
+        mysql "$DB_NAME" -e "ALTER TABLE redirects ADD COLUMN country_whitelist TEXT AFTER country_whitelist_enabled;" 2>/dev/null || true
+    fi
+    
+    # 添加 redirects 表的 updated_at 字段
+    if ! mysql -e "SELECT updated_at FROM ${DB_NAME}.redirects LIMIT 1" 2>/dev/null; then
+        log_info "添加 updated_at 字段..."
+        mysql "$DB_NAME" -e "ALTER TABLE redirects ADD COLUMN updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP AFTER created_at;" 2>/dev/null || true
+    fi
+    
+    # 检查 jump_rules 表是否存在
+    if ! mysql -e "SELECT 1 FROM ${DB_NAME}.jump_rules LIMIT 1" 2>/dev/null; then
+        log_info "运行跳转规则迁移..."
+        if [ -f "backend/migrations/merge_jump_rules.sql" ]; then
+            mysql "$DB_NAME" < backend/migrations/merge_jump_rules.sql
+        fi
+    fi
+    
+    log_info "数据库结构更新完成"
+}
+
 # 创建数据库配置文件
 create_db_config() {
     log_step "创建数据库配置文件..."
@@ -562,15 +618,32 @@ create_db_config() {
             return
         fi
     fi
+    
+    # 生成JWT密钥
+    JWT_SECRET=$(openssl rand -hex 32)
 
     cat > "$INSTALL_DIR/backend/core/db_config.php" << EOF
 <?php
-// 数据库配置 - 由部署脚本自动生成
+/**
+ * 数据库配置 - 由部署脚本自动生成
+ * 生成时间: $(date '+%Y-%m-%d %H:%M:%S')
+ */
+
+// 数据库连接配置
 define('DB_HOST', 'localhost');
 define('DB_NAME', '${DB_NAME}');
 define('DB_USER', '${DB_USER}');
 define('DB_PASS', '${DB_PASS}');
 define('DB_CHARSET', 'utf8mb4');
+
+// JWT密钥（用于API认证）
+define('JWT_SECRET', '${JWT_SECRET}');
+
+// Redis配置（可选，用于缓存加速）
+define('REDIS_HOST', '127.0.0.1');
+define('REDIS_PORT', 6379);
+define('REDIS_PASSWORD', '');
+define('REDIS_DB', 0);
 EOF
 
     chmod 600 "$INSTALL_DIR/backend/core/db_config.php"
@@ -1051,14 +1124,19 @@ print_info() {
     echo -e "${YELLOW}【安全特性】${NC}"
     echo -e "  密码存储:   ${GREEN}✓ bcrypt哈希加密${NC}"
     echo -e "  Session:    ${GREEN}✓ 安全配置已启用${NC}"
+    echo -e "  HTTPS:      ${GREEN}✓ 已启用，HTTP自动跳转${NC}"
     echo -e "  日志目录:   ${BLUE}${INSTALL_DIR}/logs${NC}"
     echo -e "  缓存预热:   ${GREEN}✓ 已配置定时任务${NC}"
+    echo ""
+    echo -e "${YELLOW}【新功能】${NC}"
+    echo -e "  IP端口匹配: ${GREEN}✓ 支持 IP:端口 格式规则${NC}"
+    echo -e "  IP范围导入: ${GREEN}✓ 支持 38.14.208.66-126 格式${NC}"
     echo ""
     echo "============================================================"
     echo -e "${RED}⚠ 重要安全提示:${NC}"
     echo -e "  1. 请登录后台后立即修改默认密码！"
     echo -e "  2. 建议开启CSRF保护: 在系统设置中启用"
-    echo -e "  3. 建议配置HTTPS并使用Cloudflare等CDN"
+    echo -e "  3. HTTPS已启用，使用自签名证书（适配Cloudflare Full模式）"
     echo -e "  4. 定期检查 ${INSTALL_DIR}/logs 下的日志文件"
     echo "============================================================"
     echo -e "${YELLOW}请妥善保存以上信息！${NC}"
@@ -1072,14 +1150,14 @@ print_info() {
 安装时间: $(date)
 
 【后台管理信息】
-  后台地址: http://${SITE_HOST}/admin
+  后台地址: https://${SITE_HOST}/admin
   账号: ${ADMIN_USER}
   密码: ${ADMIN_PASS}
 
 【网站信息】
   安装目录: ${INSTALL_DIR}
-  网站地址: http://${SITE_HOST}
-  健康检查: http://${SITE_HOST}/health.php
+  网站地址: https://${SITE_HOST}
+  健康检查: https://${SITE_HOST}/health.php
 
 【数据库信息】
   数据库名: ${DB_NAME}
@@ -1089,18 +1167,26 @@ print_info() {
 【安全特性】
   密码存储: bcrypt哈希加密
   Session: 安全配置已启用
+  HTTPS: 已启用，HTTP自动跳转HTTPS
+  SSL证书: 自签名证书（/etc/nginx/ssl/）
   日志目录: ${INSTALL_DIR}/logs
   缓存预热: 已配置定时任务 (每5分钟)
 
+【新功能说明】
+  IP端口匹配: 在跳转规则中开启"端口匹配"后，可添加 IP:端口 格式规则
+  IP范围导入: 支持格式 38.14.208.66-126 (表示 .66 到 .126)
+  CIDR导入: 支持格式 38.14.208.0/24
+
 【维护命令】
   手动缓存预热: php ${INSTALL_DIR}/public/warmup.php
-  查看健康状态: curl http://localhost/health.php?detail=1
+  查看健康状态: curl -k https://localhost/health.php?detail=1
   查看日志: tail -f ${INSTALL_DIR}/logs/app.log
+  SSL证书位置: /etc/nginx/ssl/server.crt
 
 ⚠ 重要安全提示:
   1. 请登录后台后立即修改默认密码！
   2. 建议开启CSRF保护: 在系统设置中启用
-  3. 建议配置HTTPS并使用Cloudflare等CDN
+  3. 如使用Cloudflare，请将SSL模式设为Full
   4. 定期检查日志文件
 EOF
     chmod 600 "$INSTALL_DIR/install_info.txt"
