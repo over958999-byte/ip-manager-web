@@ -63,7 +63,7 @@ define('APP_ENV', '${APP_ENV:-production}');
 define('APP_DEBUG', ${APP_DEBUG:-false});
 
 define('ADMIN_USER', '${ADMIN_USER:-admin}');
-define('ADMIN_PASS', '${ADMIN_PASS:-admin123}');
+define('ADMIN_PASS', '${ADMIN_PASS:-admin}');
 define('JWT_SECRET', '${JWT_SECRET:-change-me-in-production}');
 
 define('APP_VERSION', '2.0.0');

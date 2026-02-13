@@ -24,7 +24,7 @@ services:
       - APP_ENV=${APP_ENV:-production}
       - APP_DEBUG=${APP_DEBUG:-false}
       - ADMIN_USER=${ADMIN_USER:-admin}
-      - ADMIN_PASS=${ADMIN_PASS:-admin123}
+      - ADMIN_PASS=${ADMIN_PASS:-admin}
       - JWT_SECRET=${JWT_SECRET:-change-me-in-production}
       - METRICS_AUTH_TOKEN=${METRICS_AUTH_TOKEN:-}
       - BACKUP_DIR=/var/backups/ip-manager

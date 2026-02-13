@@ -1037,9 +1037,9 @@ ROW_FORMAT=COMPRESSED;
 -- 第十三部分: 初始数据
 -- =====================================================
 
--- 默认管理员 (密码: admin123, 请立即修改!)
+-- 默认管理员 (密码: admin, 请立即修改!)
 INSERT INTO users (username, password_hash, email, role, status, must_change_password) VALUES
-('admin', '$2y$10$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2.uheWG/igi', 'admin@localhost', 'admin', 'active', 1)
+('admin', '$2y$12$P/mxUaP0/Te182T53n8IU.VhSWv7sztmRbUw60p672gIkWXz1FJ9i', 'admin@localhost', 'admin', 'active', 1)
 ON DUPLICATE KEY UPDATE username=username;
 
 -- 默认权限配置
@@ -1680,7 +1680,7 @@ SELECT 'IP管理器数据库安装完成!' as status;
 SELECT '版本: 4.0 (完整合并版)' as version;
 SELECT CONCAT('表数量: ', COUNT(*)) as tables_count FROM information_schema.tables WHERE table_schema = DATABASE();
 SELECT '========================================' as '';
-SELECT '默认管理员: admin / admin123' as admin_info;
+SELECT '默认管理员: admin / admin' as admin_info;
 SELECT '请立即修改默认密码!' as warning;
 SELECT '========================================' as '';
 SELECT '包含内容:' as '';

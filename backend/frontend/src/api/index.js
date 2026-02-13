@@ -267,7 +267,7 @@ const api = {
   addToPool: (ips) => request.post('?action=add_to_pool', { ips }),
   removeFromPool: (ip) => request.delete('?action=remove_from_pool', { data: { ip } }),
   clearPool: () => request.delete('?action=clear_pool'),
-  activateFromPool: (ips, url, note) => request.post('?action=activate_from_pool', { ips, url, note }),
+  activateFromPool: (data) => request.post('?action=activate_from_pool', data),
   returnToPool: (ip) => request.post('?action=return_to_pool', { ip }),
   
   // Antibot 统计

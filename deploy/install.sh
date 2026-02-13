@@ -47,7 +47,7 @@ MYSQL_MIN_VERSION="5.7"
 
 # 默认后台账号密码
 ADMIN_USER="admin"
-ADMIN_PASS="admin123"
+ADMIN_PASS="admin"
 
 # 环境检测标志
 NEED_INSTALL_PHP=false
@@ -795,7 +795,14 @@ server {
         try_files \$uri \$uri/ /admin/index.html;
     }
 
-    # 管理后台API
+    # 管理后台API (新路径)
+    location ~ ^/backend/api/api_v2\.php {
+        ${FASTCGI_PASS}
+        fastcgi_param SCRIPT_FILENAME ${INSTALL_DIR}/backend/api/api_v2.php;
+        include fastcgi_params;
+    }
+
+    # 管理后台API (旧路径兼容)
     location ~ ^/api\.php {
         ${FASTCGI_PASS}
         fastcgi_param SCRIPT_FILENAME ${INSTALL_DIR}/backend/api/api_v2.php;
@@ -837,8 +844,8 @@ server {
         deny all;
     }
 
-    # 禁止访问敏感目录
-    location ~ ^/(backend|config|deploy|data)/ {
+    # 禁止访问敏感目录 (backend/api 已单独配置允许)
+    location ~ ^/(config|deploy|data)/ {
         deny all;
     }
 }
@@ -918,6 +925,14 @@ server {
         try_files \$uri \$uri/ /admin/index.html;
     }
 
+    # 管理后台API (新路径)
+    location ~ ^/backend/api/api_v2\.php {
+        ${FASTCGI_PASS}
+        fastcgi_param SCRIPT_FILENAME ${INSTALL_DIR}/backend/api/api_v2.php;
+        include fastcgi_params;
+    }
+
+    # 管理后台API (旧路径兼容)
     location ~ ^/api\.php {
         ${FASTCGI_PASS}
         fastcgi_param SCRIPT_FILENAME ${INSTALL_DIR}/backend/api/api_v2.php;
@@ -955,7 +970,8 @@ server {
         deny all;
     }
 
-    location ~ ^/(backend|config|deploy|data)/ {
+    # 禁止访问敏感目录 (backend/api 已单独配置允许)
+    location ~ ^/(config|deploy|data)/ {
         deny all;
     }
 }
