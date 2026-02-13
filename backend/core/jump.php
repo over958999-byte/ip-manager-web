@@ -327,6 +327,8 @@ class JumpService {
             $this->pdo->prepare("UPDATE jump_groups SET rule_count = rule_count + 1 WHERE tag = ?")
                       ->execute([$groupTag]);
             
+            $portMatchEnabled = (bool)($options['port_match_enabled'] ?? false);
+            
             return [
                 'success' => true,
                 'data' => [
@@ -335,7 +337,7 @@ class JumpService {
                     'match_key' => $matchKey,
                     'target_url' => $url,
                     'domain_id' => $domainId,
-                    'jump_url' => $this->getJumpUrl($type, $matchKey, $domainId)
+                    'jump_url' => $this->getJumpUrl($type, $matchKey, $domainId, $portMatchEnabled)
                 ]
             ];
         } catch (PDOException $e) {
@@ -346,8 +348,12 @@ class JumpService {
     /**
      * 获取跳转URL
      */
-    public function getJumpUrl(string $type, string $matchKey, ?int $domainId = null): string {
+    public function getJumpUrl(string $type, string $matchKey, ?int $domainId = null, bool $portMatchEnabled = false): string {
         if ($type === self::TYPE_IP) {
+            // 如果开启端口匹配且match_key包含端口，直接使用
+            if ($portMatchEnabled && strpos($matchKey, ':') !== false) {
+                return 'http://' . $matchKey . '/';
+            }
             return 'http://' . $matchKey . '/';
         }
         
@@ -555,7 +561,7 @@ class JumpService {
             $row['total_clicks'] = (int)$row['total_clicks'];
             $row['unique_visitors'] = (int)$row['unique_visitors'];
             $row['domain_id'] = $row['domain_id'] ? (int)$row['domain_id'] : null;
-            $row['jump_url'] = $this->getJumpUrl($row['rule_type'], $row['match_key'], $row['domain_id']);
+            $row['jump_url'] = $this->getJumpUrl($row['rule_type'], $row['match_key'], $row['domain_id'], $row['port_match_enabled']);
             
             if ($row['country_whitelist'] && is_string($row['country_whitelist'])) {
                 $row['country_whitelist'] = json_decode($row['country_whitelist'], true) ?? [];
