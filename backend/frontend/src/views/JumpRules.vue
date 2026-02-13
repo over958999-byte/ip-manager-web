@@ -266,8 +266,22 @@
         <el-form-item v-if="formDialog.type === 'ip'" label="端口匹配">
           <el-switch v-model="formDialog.form.port_match_enabled" />
           <span style="margin-left: 10px; color: #909399; font-size: 12px;">
-            开启后需添加 IP:端口 格式的规则才能匹配特定端口
+            开启后通过 IP:端口 访问才能跳转
           </span>
+        </el-form-item>
+        <el-form-item v-if="formDialog.type === 'ip' && formDialog.form.port_match_enabled" label="选择端口">
+          <el-checkbox-group v-model="formDialog.form.selected_ports">
+            <el-checkbox v-for="port in commonPorts" :key="port.value" :label="port.value">
+              {{ port.label }}
+            </el-checkbox>
+          </el-checkbox-group>
+          <div style="margin-top: 8px;">
+            <el-input v-model="formDialog.form.custom_port" placeholder="自定义端口" style="width: 120px" size="small" />
+            <el-button size="small" type="primary" @click="addCustomPort" style="margin-left: 8px;">添加</el-button>
+          </div>
+          <div style="margin-top: 8px; color: #909399; font-size: 12px;">
+            选中的端口将为每个IP创建对应的 IP:端口 规则
+          </div>
         </el-form-item>
         
         <el-form-item label="禁止设备">
@@ -428,6 +442,16 @@ const countries = [
   { code: 'TW', name: '台湾' }
 ]
 
+// 常用端口列表
+const commonPorts = ref([
+  { value: 80, label: '80 (HTTP)' },
+  { value: 443, label: '443 (HTTPS)' },
+  { value: 8080, label: '8080' },
+  { value: 8443, label: '8443' },
+  { value: 3000, label: '3000' },
+  { value: 5000, label: '5000' }
+])
+
 // 表单对话框
 const formRef = ref()
 const formDialog = reactive({
@@ -455,6 +479,8 @@ function getDefaultForm() {
     group_tag: 'default',
     domain_id: defaultDomain?.id || null,
     port_match_enabled: false,
+    selected_ports: [],
+    custom_port: '',
     block_desktop: false,
     block_ios: false,
     block_android: false,
@@ -463,6 +489,23 @@ function getDefaultForm() {
     expire_type: 'permanent',
     expire_at: null,
     max_clicks: 100
+  }
+}
+
+// 添加自定义端口
+function addCustomPort() {
+  const port = parseInt(formDialog.form.custom_port)
+  if (port && port > 0 && port <= 65535) {
+    if (!formDialog.form.selected_ports.includes(port)) {
+      formDialog.form.selected_ports.push(port)
+      // 如果不在常用端口中，添加到列表
+      if (!commonPorts.value.find(p => p.value === port)) {
+        commonPorts.value.push({ value: port, label: String(port) })
+      }
+    }
+    formDialog.form.custom_port = ''
+  } else {
+    ElMessage.warning('请输入有效的端口号 (1-65535)')
   }
 }
 
@@ -554,7 +597,7 @@ function showCreateDialog(type) {
 function showEditDialog(row) {
   formDialog.isEdit = true
   formDialog.type = row.rule_type
-  formDialog.form = { ...row }
+  formDialog.form = { ...row, selected_ports: [], custom_port: '' }
   formDialog.visible = true
 }
 
@@ -571,6 +614,36 @@ async function submitForm() {
     if (formDialog.isEdit) {
       res = await api.updateJumpRule(formDialog.form.id, formDialog.form)
     } else {
+      // 如果是IP类型且开启端口匹配，为每个选中的端口创建规则
+      if (formDialog.type === 'ip' && formDialog.form.port_match_enabled && formDialog.form.selected_ports.length > 0) {
+        const baseIp = formDialog.form.match_key.split(':')[0] // 去掉可能已有的端口
+        let successCount = 0
+        let failCount = 0
+        
+        for (const port of formDialog.form.selected_ports) {
+          const portForm = { 
+            ...formDialog.form, 
+            match_key: `${baseIp}:${port}` 
+          }
+          const portRes = await api.createJumpRule(formDialog.type, portForm)
+          if (portRes.success) {
+            successCount++
+          } else {
+            failCount++
+          }
+        }
+        
+        if (successCount > 0) {
+          ElMessage.success(`成功创建 ${successCount} 条规则` + (failCount > 0 ? `，失败 ${failCount} 条` : ''))
+          formDialog.visible = false
+          loadData()
+          loadStats()
+        } else {
+          ElMessage.error('创建失败')
+        }
+        return
+      }
+      
       res = await api.createJumpRule(formDialog.type, formDialog.form)
     }
 
