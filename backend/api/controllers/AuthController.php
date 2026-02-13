@@ -26,45 +26,51 @@ class AuthController extends BaseController
      */
     public function login(): void
     {
+        $username = $this->param('username', 'admin');
         $password = $this->param('password', '');
         $totpCode = $this->param('totp_code', '');
-        $storedPassword = $this->db->getConfig('admin_password', 'admin123');
-        $passwordHash = $this->db->getConfig('admin_password_hash', '');
         
-        $loginSuccess = false;
+        // 从 users 表获取用户
+        $user = $this->db->getUserByUsername($username);
         
-        // 优先使用哈希密码验证
-        if (!empty($passwordHash)) {
-            $loginSuccess = $this->security->verifyPassword($password, $passwordHash);
-            
-            // 检查是否需要重新哈希（算法升级时）
-            if ($loginSuccess && $this->security->needsRehash($passwordHash)) {
-                $newHash = $this->security->hashPassword($password);
-                $this->db->setConfig('admin_password_hash', $newHash);
-            }
-        } else {
-            // 兼容旧版明文密码
-            $loginSuccess = ($password === $storedPassword);
-            
-            // 如果明文密码验证成功，自动迁移到哈希存储
-            if ($loginSuccess) {
-                $newHash = $this->security->hashPassword($password);
-                $this->db->setConfig('admin_password_hash', $newHash);
-                Logger::logInfo('密码已自动迁移到哈希存储');
-            }
+        if (!$user) {
+            Logger::logSecurityEvent('登录失败，用户不存在: ' . $username);
+            $this->error('用户名或密码错误', 401);
+            return;
+        }
+        
+        // 检查用户状态
+        if ($user['status'] === 'locked') {
+            Logger::logSecurityEvent('登录失败，账户已锁定: ' . $username);
+            $this->error('账户已锁定，请联系管理员', 401);
+            return;
+        }
+        
+        if ($user['status'] === 'inactive') {
+            Logger::logSecurityEvent('登录失败，账户已禁用: ' . $username);
+            $this->error('账户已禁用', 401);
+            return;
+        }
+        
+        // 验证密码
+        $loginSuccess = $this->security->verifyPassword($password, $user['password_hash']);
+        
+        // 检查是否需要重新哈希（算法升级时）
+        if ($loginSuccess && $this->security->needsRehash($user['password_hash'])) {
+            $newHash = $this->security->hashPassword($password);
+            $this->db->updateUser($user['id'], ['password_hash' => $newHash]);
         }
         
         if (!$loginSuccess) {
-            Logger::logSecurityEvent('登录失败，密码错误');
-            $this->error('密码错误', 401);
+            // 记录登录失败
+            $this->db->recordLoginFailure($user['id']);
+            Logger::logSecurityEvent('登录失败，密码错误: ' . $username);
+            $this->error('用户名或密码错误', 401);
             return;
         }
         
         // 检查是否启用了 TOTP
-        $totpEnabled = $this->db->getConfig('totp_enabled', false);
-        $totpSecret = $this->db->getConfig('totp_secret', '');
-        
-        if ($totpEnabled && !empty($totpSecret)) {
+        if ($user['totp_enabled'] && !empty($user['totp_secret'])) {
             // 需要 TOTP 验证
             if (empty($totpCode)) {
                 // 返回需要 TOTP 的标志
@@ -76,22 +82,26 @@ class AuthController extends BaseController
             }
             
             // 验证 TOTP 码
-            if (!$this->verifyTotpCode($totpSecret, $totpCode)) {
-                Logger::logSecurityEvent('TOTP 验证码错误');
+            if (!$this->verifyTotpCode($user['totp_secret'], $totpCode)) {
+                Logger::logSecurityEvent('TOTP 验证码错误: ' . $username);
                 $this->error('双因素认证码错误', 401);
                 return;
             }
         }
         
-        // 登录成功
+        // 登录成功，记录登录信息
+        $this->db->recordLoginSuccess($user['id'], $this->getClientIp());
+        
+        // 设置 session
         $_SESSION['logged_in'] = true;
         $_SESSION['login_time'] = time();
-        $_SESSION['user_id'] = 1;  // 管理员用户ID
-        $_SESSION['username'] = 'admin';  // 管理员用户名
+        $_SESSION['user_id'] = $user['id'];
+        $_SESSION['username'] = $user['username'];
+        $_SESSION['role'] = $user['role'];
         session_regenerate_id(true); // 防止会话固定攻击
         
         // 记录登录审计日志
-        $this->audit('login', 'user', 1, ['ip' => $this->getClientIp()]);
+        $this->audit('login', 'user', $user['id'], ['ip' => $this->getClientIp()]);
         
         // 处理"记住我"功能
         $remember = $this->param('remember', false);
@@ -100,14 +110,23 @@ class AuthController extends BaseController
             $rememberToken = bin2hex(random_bytes(32));
             $expiry = time() + (7 * 24 * 3600); // 7天
             
-            // 保存 token 到数据库（用于验证）
-            $this->db->setConfig('remember_token', $rememberToken);
-            $this->db->setConfig('remember_token_expiry', $expiry);
+            // 保存 token 到 users 表
+            $this->db->updateUser($user['id'], [
+                'remember_token' => $rememberToken,
+                'remember_token_expiry' => date('Y-m-d H:i:s', $expiry)
+            ]);
             
             // 设置 cookie
             $isHttps = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off')
                        || ($_SERVER['SERVER_PORT'] ?? 80) == 443;
             setcookie('remember_token', $rememberToken, [
+                'expires' => $expiry,
+                'path' => '/',
+                'secure' => $isHttps,
+                'httponly' => true,
+                'samesite' => 'Lax'
+            ]);
+            setcookie('remember_user_id', $user['id'], [
                 'expires' => $expiry,
                 'path' => '/',
                 'secure' => $isHttps,
@@ -127,11 +146,19 @@ class AuthController extends BaseController
             ]);
         }
         
-        $this->audit('login', 'user', null, ['ip' => $this->getClientIp()]);
-        Logger::logInfo('用户登录成功');
+        Logger::logInfo('用户登录成功: ' . $username);
+        
+        // 检查是否需要修改密码
+        $mustChangePassword = (bool)($user['must_change_password'] ?? false);
         
         $this->success([
-            'csrf_token' => $this->security->getCsrfToken()
+            'csrf_token' => $this->security->getCsrfToken(),
+            'user' => [
+                'id' => $user['id'],
+                'username' => $user['username'],
+                'role' => $user['role']
+            ],
+            'must_change_password' => $mustChangePassword
         ], '登录成功');
     }
     
@@ -220,13 +247,25 @@ class AuthController extends BaseController
         $this->audit('logout', 'user');
         
         // 清除 remember token
-        $this->db->setConfig('remember_token', '');
-        $this->db->setConfig('remember_token_expiry', 0);
+        $userId = $_SESSION['user_id'] ?? null;
+        if ($userId) {
+            $this->db->updateUser($userId, [
+                'remember_token' => null,
+                'remember_token_expiry' => null
+            ]);
+        }
         
         // 删除 remember_token cookie
         $isHttps = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off')
                    || ($_SERVER['SERVER_PORT'] ?? 80) == 443;
         setcookie('remember_token', '', [
+            'expires' => time() - 3600,
+            'path' => '/',
+            'secure' => $isHttps,
+            'httponly' => true,
+            'samesite' => 'Lax'
+        ]);
+        setcookie('remember_user_id', '', [
             'expires' => time() - 3600,
             'path' => '/',
             'secure' => $isHttps,
@@ -247,28 +286,32 @@ class AuthController extends BaseController
         $loggedIn = $this->isLoggedIn();
         
         // 如果未登录，尝试通过 remember_token 恢复登录状态
-        if (!$loggedIn && !empty($_COOKIE['remember_token'])) {
-            $storedToken = $this->db->getConfig('remember_token', '');
-            $tokenExpiry = (int)$this->db->getConfig('remember_token_expiry', 0);
+        if (!$loggedIn && !empty($_COOKIE['remember_token']) && !empty($_COOKIE['remember_user_id'])) {
+            $userId = (int)$_COOKIE['remember_user_id'];
+            $user = $this->db->getUserById($userId);
             
-            if (!empty($storedToken) 
-                && hash_equals($storedToken, $_COOKIE['remember_token'])
-                && $tokenExpiry > time()) {
+            if ($user 
+                && !empty($user['remember_token'])
+                && hash_equals($user['remember_token'], $_COOKIE['remember_token'])
+                && strtotime($user['remember_token_expiry']) > time()) {
                 // Token 有效，恢复登录状态
                 $_SESSION['logged_in'] = true;
                 $_SESSION['login_time'] = time();
-                $_SESSION['user_id'] = 1;  // 管理员用户ID
-                $_SESSION['username'] = 'admin';  // 管理员用户名
+                $_SESSION['user_id'] = $user['id'];
+                $_SESSION['username'] = $user['username'];
+                $_SESSION['role'] = $user['role'];
                 session_regenerate_id(true);
                 $loggedIn = true;
                 
                 // 刷新 token 和 session 过期时间
                 $newExpiry = time() + (7 * 24 * 3600);
-                $this->db->setConfig('remember_token_expiry', $newExpiry);
+                $this->db->updateUser($user['id'], [
+                    'remember_token_expiry' => date('Y-m-d H:i:s', $newExpiry)
+                ]);
                 
                 $isHttps = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off')
                            || ($_SERVER['SERVER_PORT'] ?? 80) == 443;
-                setcookie('remember_token', $storedToken, [
+                setcookie('remember_token', $user['remember_token'], [
                     'expires' => $newExpiry,
                     'path' => '/',
                     'secure' => $isHttps,
@@ -281,6 +324,7 @@ class AuthController extends BaseController
         $this->success([
             'logged_in' => $loggedIn,
             'username' => $loggedIn ? ($_SESSION['username'] ?? 'admin') : null,
+            'role' => $loggedIn ? ($_SESSION['role'] ?? 'admin') : null,
             'login_time' => $_SESSION['login_time'] ?? null
         ]);
     }
@@ -305,30 +349,31 @@ class AuthController extends BaseController
             $this->error($validator->getFirstError());
         }
         
-        // 验证旧密码
-        $passwordHash = $this->db->getConfig('admin_password_hash', '');
-        $storedPassword = $this->db->getConfig('admin_password', 'admin123');
-        
-        $oldPasswordValid = false;
-        if (!empty($passwordHash)) {
-            $oldPasswordValid = $this->security->verifyPassword($oldPassword, $passwordHash);
-        } else {
-            $oldPasswordValid = ($oldPassword === $storedPassword);
+        // 获取当前用户
+        $userId = $_SESSION['user_id'] ?? null;
+        if (!$userId) {
+            $this->error('用户未登录');
         }
         
-        if (!$oldPasswordValid) {
-            Logger::logSecurityEvent('修改密码失败，原密码错误');
+        $user = $this->db->getUserById($userId);
+        if (!$user) {
+            $this->error('用户不存在');
+        }
+        
+        // 验证旧密码
+        if (!$this->security->verifyPassword($oldPassword, $user['password_hash'])) {
+            Logger::logSecurityEvent('修改密码失败，原密码错误: ' . $user['username']);
             $this->error('原密码错误');
         }
         
-        // 保存新密码（哈希存储）
+        // 保存新密码
         $newHash = $this->security->hashPassword($newPassword);
-        if ($this->db->setConfig('admin_password_hash', $newHash)) {
-            // 清除旧的明文密码
-            $this->db->setConfig('admin_password', '');
-            
-            $this->audit('change_password', 'user');
-            Logger::logInfo('管理员密码已修改');
+        if ($this->db->updateUser($userId, [
+            'password_hash' => $newHash,
+            'must_change_password' => 0
+        ])) {
+            $this->audit('change_password', 'user', $userId);
+            Logger::logInfo('用户密码已修改: ' . $user['username']);
             
             $this->success(null, '密码修改成功');
         } else {
@@ -344,12 +389,15 @@ class AuthController extends BaseController
     {
         $this->requireLogin();
         
-        $totpEnabled = $this->db->getConfig('totp_enabled', false);
-        $totpSecret = $this->db->getConfig('totp_secret', '');
+        $userId = $_SESSION['user_id'] ?? null;
+        $user = $this->db->getUserById($userId);
+        
+        $totpEnabled = $user && $user['totp_enabled'];
+        $totpConfigured = $user && !empty($user['totp_secret']);
         
         $this->success([
-            'enabled' => $totpEnabled && !empty($totpSecret),
-            'configured' => !empty($totpSecret)
+            'enabled' => $totpEnabled && $totpConfigured,
+            'configured' => $totpConfigured
         ]);
     }
     
@@ -388,9 +436,12 @@ class AuthController extends BaseController
         
         $code = $this->requiredParam('code', '验证码不能为空');
         
+        $userId = $_SESSION['user_id'] ?? null;
+        $user = $this->db->getUserById($userId);
+        
         // 检查是否有待验证的密钥
         $pendingSecret = $_SESSION['pending_totp_secret'] ?? null;
-        $existingSecret = $this->db->getConfig('totp_secret', '');
+        $existingSecret = $user['totp_secret'] ?? '';
         
         $secret = $pendingSecret ?: $existingSecret;
         
@@ -405,11 +456,13 @@ class AuthController extends BaseController
         
         // 如果是首次设置，保存密钥并启用
         if ($pendingSecret) {
-            $this->db->setConfig('totp_secret', $pendingSecret);
-            $this->db->setConfig('totp_enabled', 1);
+            $this->db->updateUser($userId, [
+                'totp_secret' => $pendingSecret,
+                'totp_enabled' => 1
+            ]);
             unset($_SESSION['pending_totp_secret']);
             
-            $this->audit('totp_enable', 'user');
+            $this->audit('totp_enable', 'user', $userId);
             $this->success(null, 'TOTP 已启用');
         } else {
             $this->success(null, '验证成功');
@@ -426,7 +479,10 @@ class AuthController extends BaseController
         
         $code = $this->requiredParam('code', '验证码不能为空');
         
-        $secret = $this->db->getConfig('totp_secret', '');
+        $userId = $_SESSION['user_id'] ?? null;
+        $user = $this->db->getUserById($userId);
+        
+        $secret = $user['totp_secret'] ?? '';
         
         if (empty($secret)) {
             $this->error('TOTP 未启用');
@@ -438,10 +494,12 @@ class AuthController extends BaseController
         }
         
         // 禁用 TOTP
-        $this->db->setConfig('totp_enabled', 0);
-        $this->db->setConfig('totp_secret', '');
+        $this->db->updateUser($userId, [
+            'totp_enabled' => 0,
+            'totp_secret' => null
+        ]);
         
-        $this->audit('totp_disable', 'user');
+        $this->audit('totp_disable', 'user', $userId);
         $this->success(null, 'TOTP 已禁用');
     }
     

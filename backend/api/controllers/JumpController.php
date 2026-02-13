@@ -60,6 +60,7 @@ class JumpController extends BaseController
             'group_tag' => $this->param('group_tag', $type === 'ip' ? 'ip' : 'shortlink'),
             'domain_id' => $this->param('domain_id'),
             'enabled' => $this->param('enabled', 1),
+            'port_match_enabled' => $this->param('port_match_enabled', 0),
             'block_desktop' => $this->param('block_desktop', 0),
             'block_ios' => $this->param('block_ios', 0),
             'block_android' => $this->param('block_android', 0),

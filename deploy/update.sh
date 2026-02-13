@@ -244,7 +244,6 @@ if [ -f "backend/core/db_config.php" ]; then
     # 检查安全相关配置
     log_info "检查安全配置..."
     mysql "$DB_NAME" -e "
-    INSERT IGNORE INTO config (\`key\`, \`value\`) VALUES ('admin_password_hash', '');
     INSERT INTO config (\`key\`, \`value\`) VALUES ('csrf_enabled', 'false')
     ON DUPLICATE KEY UPDATE \`value\` = \`value\`;
     INSERT INTO config (\`key\`, \`value\`) VALUES ('warmup_secret_key', '$(openssl rand -hex 16)')
@@ -252,6 +251,19 @@ if [ -f "backend/core/db_config.php" ]; then
     INSERT INTO config (\`key\`, \`value\`) VALUES ('security_config', '{\"session_lifetime\":1800,\"max_login_attempts\":5,\"lockout_duration\":900}')
     ON DUPLICATE KEY UPDATE \`value\` = \`value\`;
     " 2>/dev/null || true
+    
+    # 升级 users 表添加 TOTP 和记住登录字段
+    log_info "检查 users 表字段..."
+    if ! mysql -e "SELECT totp_secret FROM ${DB_NAME}.users LIMIT 1" 2>/dev/null; then
+        log_info "添加 users 表 TOTP 和记住登录字段..."
+        mysql "$DB_NAME" -e "
+        ALTER TABLE users ADD COLUMN totp_secret VARCHAR(100) COMMENT 'TOTP密钥';
+        ALTER TABLE users ADD COLUMN totp_enabled TINYINT(1) DEFAULT 0 COMMENT 'TOTP是否启用';
+        ALTER TABLE users ADD COLUMN remember_token VARCHAR(64) COMMENT '记住登录令牌';
+        ALTER TABLE users ADD COLUMN remember_token_expiry TIMESTAMP NULL COMMENT '记住登录过期时间';
+        ALTER TABLE users ADD INDEX idx_remember_token (remember_token);
+        " 2>/dev/null || true
+    fi
 fi
 
 # 检查并创建日志目录

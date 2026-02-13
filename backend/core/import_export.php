@@ -501,8 +501,8 @@ class ImportExportService {
                 break;
                 
             case self::TYPE_JUMP_RULES:
-                if (empty($row['name'])) {
-                    return ['valid' => false, 'error' => '规则名称不能为空'];
+                if (empty($row['match_key']) && empty($row['name'])) {
+                    return ['valid' => false, 'error' => '规则标识(match_key)不能为空'];
                 }
                 if (empty($row['target_url'])) {
                     return ['valid' => false, 'error' => '目标URL不能为空'];
@@ -555,17 +555,21 @@ class ImportExportService {
                     break;
                     
                 case self::TYPE_JUMP_RULES:
+                    // 支持新旧两种格式的导入
+                    $matchKey = $row['match_key'] ?? $row['name'] ?? '';
+                    $title = $row['title'] ?? $row['name'] ?? '';
                     $stmt = $pdo->prepare(
-                        "INSERT INTO jump_rules (name, source_domain, target_url, device_filter, region_filter, weight, enabled, created_at) 
-                         VALUES (?, ?, ?, ?, ?, ?, ?, NOW())"
+                        "INSERT INTO jump_rules (match_key, target_url, title, note, rule_type, group_tag, enabled, created_at) 
+                         VALUES (?, ?, ?, ?, ?, ?, ?, NOW())
+                         ON DUPLICATE KEY UPDATE target_url=VALUES(target_url), title=VALUES(title)"
                     );
                     $stmt->execute([
-                        $row['name'],
-                        $row['source_domain'] ?? '',
+                        $matchKey,
                         $row['target_url'],
-                        $row['device_filter'] ?? '',
-                        $row['region_filter'] ?? '',
-                        $row['weight'] ?? 100,
+                        $title,
+                        $row['note'] ?? '',
+                        $row['rule_type'] ?? 'code',
+                        $row['group_tag'] ?? 'default',
                         $row['enabled'] ?? 1
                     ]);
                     break;

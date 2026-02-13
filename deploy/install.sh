@@ -596,8 +596,33 @@ update_database_schema() {
         mysql "$DB_NAME" -e "ALTER TABLE redirects ADD COLUMN updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP AFTER created_at;" 2>/dev/null || true
     fi
     
-    # 检查 jump_rules 表是否存在
-    if ! mysql -e "SELECT 1 FROM ${DB_NAME}.jump_rules LIMIT 1" 2>/dev/null; then
+    # 检查 jump_rules 表是否存在，如果存在则更新字段
+    if mysql -e "SELECT 1 FROM ${DB_NAME}.jump_rules LIMIT 1" 2>/dev/null; then
+        # 添加 jump_rules 表的 port_match_enabled 字段
+        if ! mysql -e "SELECT port_match_enabled FROM ${DB_NAME}.jump_rules LIMIT 1" 2>/dev/null; then
+            log_info "添加 jump_rules.port_match_enabled 字段..."
+            mysql "$DB_NAME" -e "ALTER TABLE jump_rules ADD COLUMN port_match_enabled TINYINT(1) DEFAULT 0 COMMENT '启用端口匹配' AFTER enabled;" 2>/dev/null || true
+        fi
+        
+        # 添加 jump_rules 表的设备限制字段
+        if ! mysql -e "SELECT block_desktop FROM ${DB_NAME}.jump_rules LIMIT 1" 2>/dev/null; then
+            log_info "添加 jump_rules 设备限制字段..."
+            mysql "$DB_NAME" -e "ALTER TABLE jump_rules ADD COLUMN block_desktop TINYINT(1) DEFAULT 0 AFTER port_match_enabled;" 2>/dev/null || true
+            mysql "$DB_NAME" -e "ALTER TABLE jump_rules ADD COLUMN block_ios TINYINT(1) DEFAULT 0 AFTER block_desktop;" 2>/dev/null || true
+            mysql "$DB_NAME" -e "ALTER TABLE jump_rules ADD COLUMN block_android TINYINT(1) DEFAULT 0 AFTER block_ios;" 2>/dev/null || true
+        fi
+        
+        # 添加 jump_rules 表的国家白名单字段
+        if ! mysql -e "SELECT country_whitelist_enabled FROM ${DB_NAME}.jump_rules LIMIT 1" 2>/dev/null; then
+            log_info "添加 jump_rules 国家白名单字段..."
+            mysql "$DB_NAME" -e "ALTER TABLE jump_rules ADD COLUMN country_whitelist_enabled TINYINT(1) DEFAULT 0 AFTER block_android;" 2>/dev/null || true
+            mysql "$DB_NAME" -e "ALTER TABLE jump_rules ADD COLUMN country_whitelist TEXT AFTER country_whitelist_enabled;" 2>/dev/null || true
+        fi
+        
+        # 更新 rule_type 枚举添加 'ip' 类型
+        log_info "检查 rule_type 枚举..."
+        mysql "$DB_NAME" -e "ALTER TABLE jump_rules MODIFY COLUMN rule_type ENUM('shortlink','code','domain','custom','ip') NOT NULL DEFAULT 'shortlink';" 2>/dev/null || true
+    else
         log_info "运行跳转规则迁移..."
         if [ -f "backend/migrations/merge_jump_rules.sql" ]; then
             mysql "$DB_NAME" < backend/migrations/merge_jump_rules.sql
@@ -993,21 +1018,9 @@ initialize_security() {
     chown www-data:www-data "$INSTALL_DIR/logs" 2>/dev/null || chown nginx:nginx "$INSTALL_DIR/logs" 2>/dev/null || true
     chmod 755 "$INSTALL_DIR/logs"
     
-    # 运行密码迁移脚本（将明文密码迁移到哈希存储）
-    if [ -f "$INSTALL_DIR/backend/migrate_password.php" ]; then
-        log_info "执行密码安全迁移..."
-        php "$INSTALL_DIR/backend/migrate_password.php" << EOF
-n
-EOF
-        log_info "密码迁移完成"
-    fi
-    
     # 初始化安全配置到数据库
     log_info "初始化安全配置..."
     mysql "$DB_NAME" << EOF 2>/dev/null || true
--- 设置密码哈希（如果尚未设置）
-INSERT IGNORE INTO config (\`key\`, \`value\`) VALUES ('admin_password_hash', '');
-
 -- CSRF 保护默认关闭（可在设置中开启）
 INSERT INTO config (\`key\`, \`value\`) VALUES ('csrf_enabled', 'false')
 ON DUPLICATE KEY UPDATE \`value\` = \`value\`;
@@ -1019,6 +1032,12 @@ ON DUPLICATE KEY UPDATE \`value\` = \`value\`;
 -- 设置默认安全配置
 INSERT INTO config (\`key\`, \`value\`) VALUES ('security_config', '{"session_lifetime":1800,"max_login_attempts":5,"lockout_duration":900}')
 ON DUPLICATE KEY UPDATE \`value\` = \`value\`;
+
+-- 确保 users 表有 TOTP 和记住登录相关字段
+ALTER TABLE users ADD COLUMN IF NOT EXISTS totp_secret VARCHAR(100) COMMENT 'TOTP密钥' AFTER two_factor_enabled;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS totp_enabled TINYINT(1) DEFAULT 0 COMMENT 'TOTP是否启用' AFTER totp_secret;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS remember_token VARCHAR(64) COMMENT '记住登录令牌' AFTER totp_enabled;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS remember_token_expiry TIMESTAMP NULL COMMENT '记住登录过期时间' AFTER remember_token;
 EOF
     
     log_info "安全设置初始化完成"

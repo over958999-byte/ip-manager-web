@@ -188,8 +188,8 @@ CREATE TABLE IF NOT EXISTS jump_rules (
     group_id INT,
     group_tag VARCHAR(50) DEFAULT 'default' COMMENT '分组标识',
     path VARCHAR(500) DEFAULT '/',
-    match_key VARCHAR(100) COMMENT '匹配键(短链接code等)',
-    rule_type ENUM('redirect', 'proxy', 'ab_test', 'weight', 'geo', 'device', 'time', 'referer', 'code') DEFAULT 'redirect',
+    match_key VARCHAR(100) COMMENT '匹配键(短链接code或IP)',
+    rule_type ENUM('redirect', 'proxy', 'ab_test', 'weight', 'geo', 'device', 'time', 'referer', 'code', 'ip') DEFAULT 'redirect',
     target_url TEXT NOT NULL,
     targets JSON COMMENT '多目标配置',
     redirect_type ENUM('301', '302', '307', '308') DEFAULT '302',
@@ -208,9 +208,15 @@ CREATE TABLE IF NOT EXISTS jump_rules (
     expire_type VARCHAR(20) DEFAULT 'permanent' COMMENT '过期类型',
     expire_at TIMESTAMP NULL,
     max_clicks INT DEFAULT NULL,
+    enabled TINYINT(1) DEFAULT 1,
+    port_match_enabled TINYINT(1) DEFAULT 0 COMMENT '启用端口匹配(IP:端口访问)',
+    block_desktop TINYINT(1) DEFAULT 0 COMMENT '禁止PC访问',
+    block_ios TINYINT(1) DEFAULT 0 COMMENT '禁止iOS访问',
+    block_android TINYINT(1) DEFAULT 0 COMMENT '禁止Android访问',
+    country_whitelist_enabled TINYINT(1) DEFAULT 0 COMMENT '启用国家白名单',
+    country_whitelist TEXT COMMENT '允许的国家代码JSON数组',
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    enabled TINYINT(1) DEFAULT 1,
     
     INDEX idx_domain (domain_id),
     INDEX idx_group (group_id),
@@ -469,6 +475,10 @@ CREATE TABLE IF NOT EXISTS users (
     locked_until TIMESTAMP NULL,
     two_factor_secret VARCHAR(100),
     two_factor_enabled TINYINT(1) DEFAULT 0,
+    totp_secret VARCHAR(100) COMMENT 'TOTP密钥',
+    totp_enabled TINYINT(1) DEFAULT 0 COMMENT 'TOTP是否启用',
+    remember_token VARCHAR(64) COMMENT '记住登录令牌',
+    remember_token_expiry TIMESTAMP NULL COMMENT '记住登录过期时间',
     api_key VARCHAR(64),
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -477,7 +487,8 @@ CREATE TABLE IF NOT EXISTS users (
     UNIQUE KEY unique_email (email),
     UNIQUE KEY unique_api_key (api_key),
     INDEX idx_status (status),
-    INDEX idx_role (role)
+    INDEX idx_role (role),
+    INDEX idx_remember_token (remember_token)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- 角色权限表
@@ -800,7 +811,7 @@ INSERT INTO ip_blacklist_version (id, version) VALUES (1, 1) ON DUPLICATE KEY UP
 -- 第十一部分: 遗留兼容表(可选)
 -- =====================================================
 
--- 旧版跳转表(兼容)
+-- 旧版跳转表(兼容) - 完整版包含所有字段
 CREATE TABLE IF NOT EXISTS redirects (
     id INT AUTO_INCREMENT PRIMARY KEY,
     ip VARCHAR(45) NOT NULL,
@@ -813,8 +824,14 @@ CREATE TABLE IF NOT EXISTS redirects (
     status ENUM('active', 'inactive') DEFAULT 'active',
     enabled TINYINT(1) DEFAULT 1,
     port_match_enabled TINYINT(1) DEFAULT 0 COMMENT '启用端口匹配(IP:端口访问)',
+    block_desktop TINYINT(1) DEFAULT 0 COMMENT '禁止PC访问',
+    block_ios TINYINT(1) DEFAULT 0 COMMENT '禁止iOS访问',
+    block_android TINYINT(1) DEFAULT 0 COMMENT '禁止Android访问',
+    country_whitelist_enabled TINYINT(1) DEFAULT 0 COMMENT '启用国家白名单',
+    country_whitelist TEXT COMMENT '允许的国家代码JSON数组',
     visit_count INT DEFAULT 0,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     UNIQUE KEY unique_ip (ip),
     UNIQUE KEY unique_code (short_code)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

@@ -294,6 +294,80 @@ class Database {
         return $config;
     }
     
+    // ==================== 用户管理相关 ====================
+    
+    /**
+     * 根据用户名获取用户
+     */
+    public function getUserByUsername(string $username): ?array {
+        $stmt = $this->pdo->prepare("SELECT * FROM users WHERE username = ?");
+        $stmt->execute([$username]);
+        $user = $stmt->fetch(\PDO::FETCH_ASSOC);
+        return $user ?: null;
+    }
+    
+    /**
+     * 根据ID获取用户
+     */
+    public function getUserById(int $id): ?array {
+        $stmt = $this->pdo->prepare("SELECT * FROM users WHERE id = ?");
+        $stmt->execute([$id]);
+        $user = $stmt->fetch(\PDO::FETCH_ASSOC);
+        return $user ?: null;
+    }
+    
+    /**
+     * 更新用户信息
+     */
+    public function updateUser(int $id, array $data): bool {
+        if (empty($data)) return false;
+        
+        $setClauses = [];
+        $params = [];
+        foreach ($data as $column => $value) {
+            $setClauses[] = "`{$column}` = ?";
+            $params[] = $value;
+        }
+        $params[] = $id;
+        
+        $sql = "UPDATE users SET " . implode(', ', $setClauses) . " WHERE id = ?";
+        $stmt = $this->pdo->prepare($sql);
+        return $stmt->execute($params);
+    }
+    
+    /**
+     * 记录登录成功
+     */
+    public function recordLoginSuccess(int $userId, string $ip): void {
+        $stmt = $this->pdo->prepare("
+            UPDATE users SET 
+                last_login_at = NOW(), 
+                last_login_ip = ?,
+                login_count = login_count + 1,
+                failed_attempts = 0
+            WHERE id = ?
+        ");
+        $stmt->execute([$ip, $userId]);
+    }
+    
+    /**
+     * 记录登录失败
+     */
+    public function recordLoginFailure(int $userId): void {
+        $stmt = $this->pdo->prepare("
+            UPDATE users SET failed_attempts = failed_attempts + 1 WHERE id = ?
+        ");
+        $stmt->execute([$userId]);
+    }
+    
+    /**
+     * 获取所有用户
+     */
+    public function getUsers(): array {
+        $stmt = $this->pdo->query("SELECT id, username, email, role, status, last_login_at, login_count, totp_enabled, created_at FROM users ORDER BY id");
+        return $stmt->fetchAll(\PDO::FETCH_ASSOC);
+    }
+    
     // ==================== IP跳转相关 ====================
     
     /**

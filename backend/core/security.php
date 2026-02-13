@@ -528,32 +528,44 @@ class Security {
     }
     
     /**
-     * 检查是否启用了 TOTP
+     * 检查用户是否启用了 TOTP
+     * @param int|null $userId 用户ID，为空时从session获取
      */
-    public function isTotpEnabled(): bool {
+    public function isTotpEnabled(?int $userId = null): bool {
         if (!$this->db) return false;
         
-        $secret = $this->db->getConfig('totp_secret', '');
-        $enabled = $this->db->getConfig('totp_enabled', false);
+        if ($userId === null) {
+            $userId = $_SESSION['user_id'] ?? null;
+        }
         
-        return !empty($secret) && $enabled;
+        if (!$userId) return false;
+        
+        $user = $this->db->getUserById($userId);
+        if (!$user) return false;
+        
+        return !empty($user['totp_secret']) && $user['totp_enabled'];
     }
     
     /**
      * 启用 TOTP
+     * @param int $userId 用户ID
+     * @param string $secret TOTP密钥
+     * @param string $code 验证码
      */
-    public function enableTotp(string $secret, string $code): bool {
+    public function enableTotp(int $userId, string $secret, string $code): bool {
         // 验证代码
         if (!$this->verifyTotp($secret, $code)) {
             return false;
         }
         
         if ($this->db) {
-            $this->db->setConfig('totp_secret', $secret);
-            $this->db->setConfig('totp_enabled', true);
+            $this->db->updateUser($userId, [
+                'totp_secret' => $secret,
+                'totp_enabled' => 1
+            ]);
             
             if (class_exists('Logger')) {
-                Logger::logSecurityEvent('TOTP双因素认证已启用');
+                Logger::logSecurityEvent("用户 {$userId} 启用了TOTP双因素认证");
             }
         }
         
@@ -562,22 +574,35 @@ class Security {
     
     /**
      * 禁用 TOTP
+     * @param int $userId 用户ID
      */
-    public function disableTotp(): void {
+    public function disableTotp(int $userId): void {
         if ($this->db) {
-            $this->db->setConfig('totp_enabled', false);
+            $this->db->updateUser($userId, [
+                'totp_enabled' => 0,
+                'totp_secret' => null
+            ]);
             
             if (class_exists('Logger')) {
-                Logger::logSecurityEvent('TOTP双因素认证已禁用');
+                Logger::logSecurityEvent("用户 {$userId} 禁用了TOTP双因素认证");
             }
         }
     }
     
     /**
-     * 获取 TOTP 密钥
+     * 获取用户的 TOTP 密钥
+     * @param int|null $userId 用户ID，为空时从session获取
      */
-    public function getTotpSecret(): string {
+    public function getTotpSecret(?int $userId = null): string {
         if (!$this->db) return '';
-        return $this->db->getConfig('totp_secret', '');
+        
+        if ($userId === null) {
+            $userId = $_SESSION['user_id'] ?? null;
+        }
+        
+        if (!$userId) return '';
+        
+        $user = $this->db->getUserById($userId);
+        return $user['totp_secret'] ?? '';
     }
 }

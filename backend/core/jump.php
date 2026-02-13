@@ -288,10 +288,10 @@ class JumpService {
             $stmt = $this->pdo->prepare("
                 INSERT INTO jump_rules (
                     rule_type, match_key, target_url, title, note, group_tag, domain_id, enabled,
-                    block_desktop, block_ios, block_android,
+                    port_match_enabled, block_desktop, block_ios, block_android,
                     country_whitelist_enabled, country_whitelist,
                     expire_type, expire_at, max_clicks
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ");
             
             $countryWhitelist = isset($options['country_whitelist']) 
@@ -307,6 +307,7 @@ class JumpService {
                 $options['group_tag'] ?? ($type === self::TYPE_IP ? 'ip' : 'shortlink'),
                 $domainId,
                 (int)($options['enabled'] ?? 1),
+                (int)($options['port_match_enabled'] ?? 0),
                 (int)($options['block_desktop'] ?? 0),
                 (int)($options['block_ios'] ?? 0),
                 (int)($options['block_android'] ?? 0),
@@ -396,6 +397,7 @@ class JumpService {
         
         if ($row) {
             $row['enabled'] = (bool)$row['enabled'];
+            $row['port_match_enabled'] = (bool)($row['port_match_enabled'] ?? false);
             $row['block_desktop'] = (bool)$row['block_desktop'];
             $row['block_ios'] = (bool)$row['block_ios'];
             $row['block_android'] = (bool)$row['block_android'];
@@ -428,6 +430,7 @@ class JumpService {
         
         if ($row) {
             $row['enabled'] = (bool)$row['enabled'];
+            $row['port_match_enabled'] = (bool)($row['port_match_enabled'] ?? false);
             $row['block_desktop'] = (bool)$row['block_desktop'];
             $row['block_ios'] = (bool)$row['block_ios'];
             $row['block_android'] = (bool)$row['block_android'];
@@ -542,6 +545,7 @@ class JumpService {
         
         foreach ($rows as &$row) {
             $row['enabled'] = (bool)$row['enabled'];
+            $row['port_match_enabled'] = (bool)($row['port_match_enabled'] ?? false);
             $row['block_desktop'] = (bool)$row['block_desktop'];
             $row['block_ios'] = (bool)$row['block_ios'];
             $row['block_android'] = (bool)$row['block_android'];
@@ -606,7 +610,7 @@ class JumpService {
         
         $allowedFields = [
             'target_url', 'title', 'note', 'group_tag', 'enabled',
-            'block_desktop', 'block_ios', 'block_android',
+            'port_match_enabled', 'block_desktop', 'block_ios', 'block_android',
             'country_whitelist_enabled', 'country_whitelist',
             'expire_type', 'expire_at', 'max_clicks'
         ];
@@ -625,7 +629,7 @@ class JumpService {
                     $value = json_encode($value);
                 }
                 
-                if (in_array($field, ['enabled', 'block_desktop', 'block_ios', 'block_android', 'country_whitelist_enabled'])) {
+                if (in_array($field, ['enabled', 'port_match_enabled', 'block_desktop', 'block_ios', 'block_android', 'country_whitelist_enabled'])) {
                     $value = $value ? 1 : 0;
                 }
                 
