@@ -5,6 +5,7 @@
  */
 
 require_once __DIR__ . '/BaseController.php';
+require_once __DIR__ . '/../../core/jump.php';
 
 class IpPoolController extends BaseController
 {
@@ -229,6 +230,7 @@ class IpPoolController extends BaseController
         $ips = $this->param('ips', []);
         $url = trim($this->param('url', ''));
         $note = trim($this->param('note', ''));
+        $domainId = $this->param('domain_id');
         
         if (empty($ips) || empty($url)) {
             $this->error('IP和URL不能为空');
@@ -237,19 +239,44 @@ class IpPoolController extends BaseController
         // 自动补全 URL
         $url = $this->autoCompleteUrl($url);
         
+        $jumpService = new JumpService($this->pdo());
+        
+        // 如果没有指定域名，获取默认域名
+        if (!$domainId) {
+            $defaultDomain = $jumpService->getDefaultDomain();
+            $domainId = $defaultDomain ? $defaultDomain['id'] : null;
+        }
         $activated = 0;
+        $errors = [];
+        
         foreach ($ips as $ip) {
             $ip = trim($ip);
             if (!empty($ip) && $this->db->isInPool($ip)) {
+                // 从池中移除
                 $this->db->removeFromPool($ip);
-                if ($this->db->addRedirect($ip, $url, $note)) {
+                
+                // 使用 JumpService 创建跳转规则
+                $result = $jumpService->create('ip', $ip, $url, [
+                    'note' => $note,
+                    'domain_id' => $domainId,
+                    'group_tag' => 'ip'
+                ]);
+                
+                if ($result['success']) {
                     $activated++;
+                } else {
+                    $errors[] = "{$ip}: {$result['message']}";
                 }
             }
         }
         
         $this->audit('activate_from_pool', 'ip_pool', null, ['count' => $activated]);
-        $this->success(['activated' => $activated], "成功激活 {$activated} 个IP");
+        
+        if (!empty($errors) && $activated === 0) {
+            $this->error('激活失败: ' . implode('; ', $errors));
+        }
+        
+        $this->success(['activated' => $activated, 'errors' => $errors], "成功激活 {$activated} 个IP");
     }
     
     /**

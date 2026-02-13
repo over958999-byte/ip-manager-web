@@ -267,22 +267,20 @@ class JumpService {
         }
         
         try {
-            // 处理域名ID
+            // 处理域名ID - 所有类型都支持 domain_id
             $domainId = null;
-            if ($type === self::TYPE_CODE) {
-                if (!empty($options['domain_id'])) {
-                    $domainId = (int)$options['domain_id'];
-                } else {
-                    // 使用默认域名
-                    $defaultDomain = $this->getDefaultDomain();
-                    $domainId = $defaultDomain ? $defaultDomain['id'] : null;
-                }
-                
-                // 更新域名使用计数
-                if ($domainId) {
-                    $this->pdo->prepare("UPDATE jump_domains SET use_count = use_count + 1 WHERE id = ?")
-                              ->execute([$domainId]);
-                }
+            if (!empty($options['domain_id'])) {
+                $domainId = (int)$options['domain_id'];
+            } else {
+                // 使用默认域名
+                $defaultDomain = $this->getDefaultDomain();
+                $domainId = $defaultDomain ? $defaultDomain['id'] : null;
+            }
+            
+            // 如果是短码类型，更新域名使用计数
+            if ($type === self::TYPE_CODE && $domainId) {
+                $this->pdo->prepare("UPDATE jump_domains SET use_count = use_count + 1 WHERE id = ?")
+                          ->execute([$domainId]);
             }
             
             $stmt = $this->pdo->prepare("

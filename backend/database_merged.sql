@@ -1064,6 +1064,18 @@ INSERT INTO role_permissions (role, resource, action, allowed) VALUES
 ('viewer', 'stats', 'read', 1)
 ON DUPLICATE KEY UPDATE role=role;
 
+-- 默认跳转域名 (用于IP类型的规则)
+INSERT INTO jump_domains (domain, name, is_default, ssl_enabled, enabled, status) VALUES
+('http://localhost', '默认域名', 1, 0, 1, 'active')
+ON DUPLICATE KEY UPDATE name=name;
+
+-- 默认跳转分组
+INSERT INTO jump_groups (tag, name, description, sort_order) VALUES
+('ip', 'IP规则', 'IP地址跳转规则', 1),
+('shortlink', '短链接', '短链接跳转规则', 2),
+('default', '默认分组', '未分类规则', 99)
+ON DUPLICATE KEY UPDATE name=name;
+
 -- 默认威胁情报源
 INSERT INTO threat_intel_sources (name, type, url, format, update_interval) VALUES
 ('Firehol Level1', 'ip', 'https://raw.githubusercontent.com/firehol/blocklist-ipsets/master/firehol_level1.netset', 'plain', 86400),
