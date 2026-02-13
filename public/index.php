@@ -20,33 +20,39 @@ $_pre_matched_rule = null;
 $_pre_target_url = null;
 
 // 从 jump_rules 表查找匹配的跳转配置
-// 先尝试带端口匹配
-$rule = $jumpService->getByKey('ip', $_pre_host);
+// 匹配优先级：IP:端口 > 纯IP
+
+$rule = null;
+
+// 1. 先尝试精确匹配 IP:端口（如果请求带端口）
+if ($_pre_host !== $_pre_host_without_port) {
+    $rule = $jumpService->getByKey('ip', $_pre_host);
+}
+
+// 2. 尝试匹配 IP:实际端口
 if (!$rule || !$rule['enabled']) {
-    // 尝试不带端口
+    $ip_with_port = $_pre_host_without_port . ':' . $_pre_server_port;
+    $rule = $jumpService->getByKey('ip', $ip_with_port);
+}
+
+// 3. 尝试匹配纯IP
+if (!$rule || !$rule['enabled']) {
     $rule = $jumpService->getByKey('ip', $_pre_host_without_port);
 }
+
+// 4. 尝试服务器IP:端口
 if (!$rule || !$rule['enabled']) {
-    // 尝试服务器IP
-    $rule = $jumpService->getByKey('ip', $_pre_server_ip);
-}
-if (!$rule || !$rule['enabled']) {
-    // 尝试服务器IP:端口
     $rule = $jumpService->getByKey('ip', $_pre_server_ip . ':' . $_pre_server_port);
 }
 
+// 5. 尝试服务器纯IP
+if (!$rule || !$rule['enabled']) {
+    $rule = $jumpService->getByKey('ip', $_pre_server_ip);
+}
+
 if ($rule && $rule['enabled']) {
-    // 检查端口匹配逻辑
-    if ($rule['port_match_enabled']) {
-        // 开启端口匹配，match_key 必须包含端口才有效
-        if (strpos($rule['match_key'], ':') !== false) {
-            $_pre_matched_rule = $rule;
-            $_pre_target_url = $rule['target_url'];
-        }
-    } else {
-        $_pre_matched_rule = $rule;
-        $_pre_target_url = $rule['target_url'];
-    }
+    $_pre_matched_rule = $rule;
+    $_pre_target_url = $rule['target_url'];
 }
 
 // 引入反爬虫模块
