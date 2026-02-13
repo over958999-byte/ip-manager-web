@@ -680,44 +680,44 @@ class Database {
     
     // 反爬虫黑名单
     public function getAntibotBlacklist() {
-        $stmt = $this->pdo->query("SELECT ip FROM antibot_blacklist");
+        $stmt = $this->pdo->query("SELECT pattern as ip FROM antibot_blacklist WHERE enabled = 1 AND pattern_type = 'ip'");
         return $stmt->fetchAll(PDO::FETCH_COLUMN);
     }
     
     public function addToBlacklist($ip, $reason = '') {
-        $stmt = $this->pdo->prepare("INSERT IGNORE INTO antibot_blacklist (ip, reason) VALUES (?, ?)");
+        $stmt = $this->pdo->prepare("INSERT IGNORE INTO antibot_blacklist (pattern, pattern_type, reason) VALUES (?, 'ip', ?)");
         return $stmt->execute([$ip, $reason]);
     }
     
     public function removeFromBlacklist($ip) {
-        $stmt = $this->pdo->prepare("DELETE FROM antibot_blacklist WHERE ip = ?");
+        $stmt = $this->pdo->prepare("DELETE FROM antibot_blacklist WHERE pattern = ? AND pattern_type = 'ip'");
         return $stmt->execute([$ip]);
     }
     
     public function isBlacklisted($ip) {
-        $stmt = $this->pdo->prepare("SELECT 1 FROM antibot_blacklist WHERE ip = ?");
+        $stmt = $this->pdo->prepare("SELECT 1 FROM antibot_blacklist WHERE pattern = ? AND pattern_type = 'ip' AND enabled = 1");
         $stmt->execute([$ip]);
         return $stmt->fetch() !== false;
     }
     
     // 反爬虫白名单
     public function getAntibotWhitelist() {
-        $stmt = $this->pdo->query("SELECT ip FROM antibot_whitelist");
+        $stmt = $this->pdo->query("SELECT pattern as ip FROM antibot_whitelist WHERE enabled = 1 AND pattern_type = 'ip'");
         return $stmt->fetchAll(PDO::FETCH_COLUMN);
     }
     
     public function addToWhitelist($ip) {
-        $stmt = $this->pdo->prepare("INSERT IGNORE INTO antibot_whitelist (ip) VALUES (?)");
+        $stmt = $this->pdo->prepare("INSERT IGNORE INTO antibot_whitelist (pattern, pattern_type) VALUES (?, 'ip')");
         return $stmt->execute([$ip]);
     }
     
     public function removeFromWhitelist($ip) {
-        $stmt = $this->pdo->prepare("DELETE FROM antibot_whitelist WHERE ip = ?");
+        $stmt = $this->pdo->prepare("DELETE FROM antibot_whitelist WHERE pattern = ? AND pattern_type = 'ip'");
         return $stmt->execute([$ip]);
     }
     
     public function isWhitelisted($ip) {
-        $stmt = $this->pdo->prepare("SELECT 1 FROM antibot_whitelist WHERE ip = ?");
+        $stmt = $this->pdo->prepare("SELECT 1 FROM antibot_whitelist WHERE pattern = ? AND pattern_type = 'ip' AND enabled = 1");
         $stmt->execute([$ip]);
         return $stmt->fetch() !== false;
     }
@@ -820,13 +820,11 @@ class Database {
     
     // 统计
     public function incrementAntibotStat($reason) {
-        $stmt = $this->pdo->prepare("INSERT INTO antibot_stats (reason, count) VALUES (?, 1) 
-                                     ON DUPLICATE KEY UPDATE count = count + 1");
-        $stmt->execute([$reason]);
-        
-        // 更新总数
-        $this->pdo->exec("INSERT INTO antibot_stats (reason, count) VALUES ('total_blocked', 1) 
-                         ON DUPLICATE KEY UPDATE count = count + 1");
+        $today = date('Y-m-d');
+        // 更新今日统计
+        $stmt = $this->pdo->prepare("INSERT INTO antibot_stats (config_id, date, blocked_requests) VALUES (1, ?, 1) 
+                                     ON DUPLICATE KEY UPDATE blocked_requests = blocked_requests + 1");
+        $stmt->execute([$today]);
     }
     
     public function incrementAntibotStats($reason) {
@@ -835,7 +833,7 @@ class Database {
     
     public function getRecentBlockCount($ip, $timeWindow, $excludeReasons = []) {
         $since = date('Y-m-d H:i:s', time() - $timeWindow);
-        $sql = "SELECT COUNT(*) as cnt FROM antibot_logs WHERE visitor_ip = ? AND logged_at >= ?";
+        $sql = "SELECT COUNT(*) as cnt FROM antibot_logs WHERE ip = ? AND logged_at >= ?";
         $params = [$ip, $since];
         
         if (!empty($excludeReasons)) {
@@ -850,40 +848,45 @@ class Database {
     }
     
     public function getAntibotStats() {
-        $stmt = $this->pdo->query("SELECT reason, count FROM antibot_stats");
-        $stats = ['total_blocked' => 0, 'by_reason' => []];
-        while ($row = $stmt->fetch()) {
-            if ($row['reason'] === 'total_blocked') {
-                $stats['total_blocked'] = (int)$row['count'];
-            } else {
-                $stats['by_reason'][$row['reason']] = (int)$row['count'];
-            }
-        }
+        // 获取总计和今日统计
+        $stmt = $this->pdo->query("SELECT 
+            COALESCE(SUM(blocked_requests), 0) as total_blocked,
+            COALESCE(SUM(total_requests), 0) as total_requests,
+            COALESCE(SUM(passed_requests), 0) as passed_requests
+            FROM antibot_stats");
+        $row = $stmt->fetch();
+        
+        $stats = [
+            'total_blocked' => (int)$row['total_blocked'],
+            'total_requests' => (int)$row['total_requests'],
+            'passed_requests' => (int)$row['passed_requests'],
+            'by_reason' => []
+        ];
+        
         $stats['currently_blocked'] = count($this->getBlockedList());
-        $stats['blacklist_count'] = (int)$this->pdo->query("SELECT COUNT(*) FROM antibot_blacklist")->fetchColumn();
+        $stats['blacklist_count'] = (int)$this->pdo->query("SELECT COUNT(*) FROM antibot_blacklist WHERE enabled = 1")->fetchColumn();
         return $stats;
     }
     
     public function resetAntibotStats() {
-        $this->pdo->exec("TRUNCATE TABLE antibot_stats");
-        $this->pdo->exec("INSERT INTO antibot_stats (reason, count) VALUES ('total_blocked', 0)");
+        $this->pdo->exec("DELETE FROM antibot_stats");
         $this->pdo->exec("TRUNCATE TABLE antibot_logs");
         return true;
     }
     
     // 拦截日志
     public function logBlock($visitorIp, $targetIp, $reason, $detail = '', $userAgent = '', $requestUri = '') {
-        $stmt = $this->pdo->prepare("INSERT INTO antibot_logs (visitor_ip, target_ip, user_agent, request_uri, reason, detail) 
-                                     VALUES (?, ?, ?, ?, ?, ?)");
-        $stmt->execute([$visitorIp, $targetIp, substr($userAgent, 0, 500), substr($requestUri, 0, 500), $reason, $detail]);
+        $stmt = $this->pdo->prepare("INSERT INTO antibot_logs (ip, path, user_agent, reason, result) 
+                                     VALUES (?, ?, ?, ?, 'block')");
+        $stmt->execute([$visitorIp, substr($requestUri, 0, 500), substr($userAgent, 0, 500), $reason]);
         
         // 保留最近1000条
         $this->pdo->exec("DELETE FROM antibot_logs WHERE id NOT IN (SELECT id FROM (SELECT id FROM antibot_logs ORDER BY id DESC LIMIT 1000) tmp)");
     }
     
     public function getAntibotLogs($limit = 100) {
-        $stmt = $this->pdo->prepare("SELECT visitor_ip as ip, target_ip, user_agent as ua, request_uri as uri, 
-                                     reason, detail, logged_at as time FROM antibot_logs ORDER BY id DESC LIMIT ?");
+        $stmt = $this->pdo->prepare("SELECT ip, ip as target_ip, user_agent as ua, path as uri, 
+                                     reason, '' as detail, logged_at as time FROM antibot_logs ORDER BY id DESC LIMIT ?");
         $stmt->execute([$limit]);
         return $stmt->fetchAll();
     }
