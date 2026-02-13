@@ -129,7 +129,7 @@ class AuthMiddleware {
     /**
      * 清除 Token 缓存
      */
-    public static function clearTokenCache(string $token = null): void {
+    public static function clearTokenCache(?string $token = null): void {
         if ($token !== null) {
             $cacheKey = hash('sha256', $token);
             unset(self::$tokenCache[$cacheKey]);

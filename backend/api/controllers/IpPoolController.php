@@ -23,6 +23,11 @@ class IpPoolController extends BaseController
     /**
      * 批量添加 IP 到池中
      * POST /api/v2/ip-pool
+     * 
+     * 支持的格式：
+     * - 单个IP: 38.14.208.66
+     * - IP范围简写: 38.14.208.66-126 (表示 38.14.208.66 到 38.14.208.126)
+     * - CIDR格式: 38.14.208.0/24
      */
     public function add(): void
     {
@@ -30,25 +35,30 @@ class IpPoolController extends BaseController
         
         $ipsText = trim($this->requiredParam('ips', 'IP列表不能为空'));
         
-        $ips = preg_split('/[\s,\n\r]+/', $ipsText);
-        $ips = array_filter(array_map('trim', $ips));
+        $lines = preg_split('/[\n\r]+/', $ipsText);
+        $lines = array_filter(array_map('trim', $lines));
         
         $added = 0;
         $skipped = 0;
         
-        foreach ($ips as $ip) {
-            if (empty($ip)) continue;
+        foreach ($lines as $line) {
+            if (empty($line)) continue;
             
-            // 验证 IP 格式
-            if (!filter_var($ip, FILTER_VALIDATE_IP)) {
-                $skipped++;
-                continue;
-            }
+            // 解析IP（支持多种格式）
+            $expandedIps = $this->parseIpInput($line);
             
-            if ($this->db->isInPool($ip) || $this->db->getRedirect($ip)) {
-                $skipped++;
-            } elseif ($this->db->addToPool($ip)) {
-                $added++;
+            foreach ($expandedIps as $ip) {
+                // 验证 IP 格式
+                if (!filter_var($ip, FILTER_VALIDATE_IP)) {
+                    $skipped++;
+                    continue;
+                }
+                
+                if ($this->db->isInPool($ip) || $this->db->getRedirect($ip)) {
+                    $skipped++;
+                } elseif ($this->db->addToPool($ip)) {
+                    $added++;
+                }
             }
         }
         
@@ -59,6 +69,86 @@ class IpPoolController extends BaseController
         
         $this->audit('add_to_pool', 'ip_pool', null, ['count' => $added]);
         $this->success(['added' => $added, 'skipped' => $skipped], $message);
+    }
+    
+    /**
+     * 解析IP输入，支持多种格式
+     * 
+     * @param string $input 输入字符串
+     * @return array IP数组
+     */
+    private function parseIpInput(string $input): array
+    {
+        $input = trim($input);
+        
+        // 格式1: IP范围简写 38.14.208.66-126 (最后一段范围)
+        if (preg_match('/^(\d{1,3}\.\d{1,3}\.\d{1,3})\.(\d{1,3})-(\d{1,3})$/', $input, $matches)) {
+            $prefix = $matches[1];
+            $start = (int)$matches[2];
+            $end = (int)$matches[3];
+            
+            if ($start <= $end && $start >= 0 && $end <= 255) {
+                $ips = [];
+                for ($i = $start; $i <= $end; $i++) {
+                    $ips[] = "{$prefix}.{$i}";
+                }
+                return $ips;
+            }
+        }
+        
+        // 格式2: 完整IP范围 38.14.208.66-38.14.208.126
+        if (preg_match('/^(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})-(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})$/', $input, $matches)) {
+            $startIp = $matches[1];
+            $endIp = $matches[2];
+            
+            if (filter_var($startIp, FILTER_VALIDATE_IP) && filter_var($endIp, FILTER_VALIDATE_IP)) {
+                $start = ip2long($startIp);
+                $end = ip2long($endIp);
+                
+                if ($start !== false && $end !== false && $start <= $end) {
+                    // 限制最大范围为65536个IP，防止内存溢出
+                    if (($end - $start) > 65536) {
+                        $end = $start + 65536;
+                    }
+                    $ips = [];
+                    for ($i = $start; $i <= $end; $i++) {
+                        $ips[] = long2ip($i);
+                    }
+                    return $ips;
+                }
+            }
+        }
+        
+        // 格式3: CIDR格式 38.14.208.0/24
+        if (preg_match('/^(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})\/(\d{1,2})$/', $input, $matches)) {
+            $ip = $matches[1];
+            $cidr = (int)$matches[2];
+            
+            if (filter_var($ip, FILTER_VALIDATE_IP) && $cidr >= 0 && $cidr <= 32) {
+                // 只支持 /24 及以上（最多256个IP），防止内存溢出
+                if ($cidr >= 24) {
+                    $ipLong = ip2long($ip);
+                    $mask = -1 << (32 - $cidr);
+                    $network = $ipLong & $mask;
+                    $broadcast = $network | (~$mask & 0xFFFFFFFF);
+                    
+                    $ips = [];
+                    for ($i = $network; $i <= $broadcast; $i++) {
+                        $ips[] = long2ip($i);
+                    }
+                    return $ips;
+                }
+            }
+        }
+        
+        // 格式4: 逗号或空格分隔的多个IP
+        if (strpos($input, ',') !== false || strpos($input, ' ') !== false) {
+            $parts = preg_split('/[\s,]+/', $input);
+            return array_filter(array_map('trim', $parts));
+        }
+        
+        // 默认: 单个IP
+        return [$input];
     }
     
     /**
