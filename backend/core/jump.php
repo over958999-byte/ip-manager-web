@@ -285,18 +285,22 @@ class JumpService {
             
             $stmt = $this->pdo->prepare("
                 INSERT INTO jump_rules (
-                    rule_type, match_key, target_url, title, note, group_tag, domain_id, enabled,
+                    name, rule_type, match_key, target_url, title, note, group_tag, domain_id, enabled,
                     port_match_enabled, block_desktop, block_ios, block_android,
                     country_whitelist_enabled, country_whitelist,
                     expire_type, expire_at, max_clicks
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ");
             
             $countryWhitelist = isset($options['country_whitelist']) 
                 ? (is_array($options['country_whitelist']) ? json_encode($options['country_whitelist']) : $options['country_whitelist'])
                 : null;
             
+            // 生成默认名称
+            $name = $options['name'] ?? ($type === self::TYPE_IP ? $matchKey : '短链接-' . $matchKey);
+            
             $stmt->execute([
+                $name,
                 $type,
                 $matchKey,
                 $url,
