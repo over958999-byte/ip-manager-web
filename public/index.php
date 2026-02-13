@@ -1,66 +1,51 @@
 <?php
 /**
- * IP跳转处理脚本 - 数据库版本
- * 当用户访问服务器IP时，根据配置跳转到指定页面
+ * IP跳转处理脚本 - 使用 JumpService
+ * 当用户访问服务器IP时，根据 jump_rules 表配置跳转到指定页面
  */
 
 require_once __DIR__ . '/../backend/core/database.php';
-require_once __DIR__ . '/../backend/core/redis.php';
+require_once __DIR__ . '/../backend/core/jump.php';
 
 // 获取数据库实例
 $db = Database::getInstance();
+$jumpService = new JumpService($db->getPdo());
 
 // 预先确定目标IP和跳转配置
 $_pre_host = $_SERVER['HTTP_HOST'] ?? '';
 $_pre_host_without_port = preg_replace('/:\d+$/', '', $_pre_host);
 $_pre_server_ip = $_SERVER['SERVER_ADDR'] ?? $_SERVER['LOCAL_ADDR'] ?? '';
 $_pre_server_port = $_SERVER['SERVER_PORT'] ?? '80';
-$_pre_matched_ip = null;
-$_pre_matched_config = null;
+$_pre_matched_rule = null;
 $_pre_target_url = null;
 
-// 从数据库查找匹配的跳转配置
-// 逻辑：先查纯IP，如果开启了端口匹配则还要匹配端口
-$redirect = $db->getRedirect($_pre_host_without_port);
-if ($redirect && $redirect['enabled']) {
-    // 检查是否需要端口匹配
-    if (!empty($redirect['port_match_enabled'])) {
-        // 需要端口匹配，检查完整的 IP:端口
-        if ($_pre_host === $_pre_host_without_port . ':' . $_pre_server_port || $_pre_host === $_pre_host_without_port) {
-            // 尝试精确匹配 IP:端口
-            $redirect_port = $db->getRedirect($_pre_host);
-            if ($redirect_port && $redirect_port['enabled']) {
-                $_pre_matched_ip = $_pre_host;
-                $_pre_matched_config = $redirect_port;
-                $_pre_target_url = $redirect_port['url'];
-            }
-        }
-    } else {
-        // 不需要端口匹配，直接使用
-        $_pre_matched_ip = $_pre_host_without_port;
-        $_pre_matched_config = $redirect;
-        $_pre_target_url = $redirect['url'];
-    }
+// 从 jump_rules 表查找匹配的跳转配置
+// 先尝试带端口匹配
+$rule = $jumpService->getByKey('ip', $_pre_host);
+if (!$rule || !$rule['enabled']) {
+    // 尝试不带端口
+    $rule = $jumpService->getByKey('ip', $_pre_host_without_port);
+}
+if (!$rule || !$rule['enabled']) {
+    // 尝试服务器IP
+    $rule = $jumpService->getByKey('ip', $_pre_server_ip);
+}
+if (!$rule || !$rule['enabled']) {
+    // 尝试服务器IP:端口
+    $rule = $jumpService->getByKey('ip', $_pre_server_ip . ':' . $_pre_server_port);
 }
 
-// 如果还没匹配到，尝试服务器IP
-if (!$_pre_matched_config) {
-    $redirect = $db->getRedirect($_pre_server_ip);
-    if ($redirect && $redirect['enabled']) {
-        if (!empty($redirect['port_match_enabled'])) {
-            // 需要端口匹配
-            $_pre_server_ip_port = $_pre_server_ip . ':' . $_pre_server_port;
-            $redirect_port = $db->getRedirect($_pre_server_ip_port);
-            if ($redirect_port && $redirect_port['enabled']) {
-                $_pre_matched_ip = $_pre_server_ip_port;
-                $_pre_matched_config = $redirect_port;
-                $_pre_target_url = $redirect_port['url'];
-            }
-        } else {
-            $_pre_matched_ip = $_pre_server_ip;
-            $_pre_matched_config = $redirect;
-            $_pre_target_url = $redirect['url'];
+if ($rule && $rule['enabled']) {
+    // 检查端口匹配逻辑
+    if ($rule['port_match_enabled']) {
+        // 开启端口匹配，match_key 必须包含端口才有效
+        if (strpos($rule['match_key'], ':') !== false) {
+            $_pre_matched_rule = $rule;
+            $_pre_target_url = $rule['target_url'];
         }
+    } else {
+        $_pre_matched_rule = $rule;
+        $_pre_target_url = $rule['target_url'];
     }
 }
 
@@ -71,8 +56,8 @@ require_once __DIR__ . '/antibot.php';
 $antibot = new AntiBot();
 
 // 设置被访问的目标IP
-if ($_pre_matched_ip) {
-    $antibot->setTargetIp($_pre_matched_ip);
+if ($_pre_matched_rule) {
+    $antibot->setTargetIp($_pre_matched_rule['match_key']);
 }
 
 $checkResult = $antibot->check();
@@ -102,115 +87,41 @@ if (file_exists($geoIpFile)) {
 }
 
 /**
- * 获取IP国家代码（用于白名单检测）
- * 使用新的 GeoIP 服务，支持多源查询和失败重试
+ * 获取IP国家代码
  */
 function getIpCountryCode($ip) {
     global $db, $geoIpService;
     
-    // 本地IP不查询
     if (in_array($ip, ['127.0.0.1', '::1', 'localhost']) || strpos($ip, '192.168.') === 0 || strpos($ip, '10.') === 0) {
         return 'LOCAL';
     }
     
-    // 使用新的 GeoIP 服务
     if ($geoIpService) {
         return $geoIpService->getCountryCode($ip);
     }
     
-    // 降级：使用旧的查询方式
-    // 检查数据库缓存
     $cached = $db->getIpCountryCache($ip);
     if ($cached) {
         return $cached;
     }
     
-    // 使用ip-api.com免费接口（带重试）
-    $maxRetries = 2;
+    // 使用ip-api.com
+    $url = "http://ip-api.com/json/{$ip}?fields=status,countryCode,country";
+    $context = stream_context_create(['http' => ['timeout' => 2]]);
+    $response = @file_get_contents($url, false, $context);
+    
     $countryCode = 'UNKNOWN';
     $countryName = '未知';
-    
-    for ($retry = 0; $retry <= $maxRetries; $retry++) {
-        $url = "http://ip-api.com/json/{$ip}?fields=status,countryCode,country";
-        $context = stream_context_create(['http' => ['timeout' => 2, 'ignore_errors' => true]]);
-        $response = @file_get_contents($url, false, $context);
-        
-        if ($response) {
-            $data = json_decode($response, true);
-            if ($data && $data['status'] === 'success') {
-                $countryCode = $data['countryCode'] ?? 'UNKNOWN';
-                $countryName = $data['country'] ?? '未知';
-                break;
-            }
-        }
-        
-        if ($retry < $maxRetries) {
-            usleep(100000); // 100ms 后重试
+    if ($response) {
+        $data = json_decode($response, true);
+        if ($data && $data['status'] === 'success') {
+            $countryCode = $data['countryCode'] ?? 'UNKNOWN';
+            $countryName = $data['country'] ?? '未知';
         }
     }
     
-    // 保存到数据库缓存
     $db->setIpCountryCache($ip, $countryCode, $countryName);
-    
     return $countryCode;
-}
-
-/**
- * 获取IP国家名称
- */
-function getIpCountry($ip) {
-    global $db, $geoIpService;
-    
-    // 本地IP不查询
-    if (in_array($ip, ['127.0.0.1', '::1', 'localhost']) || strpos($ip, '192.168.') === 0 || strpos($ip, '10.') === 0) {
-        return '本地';
-    }
-    
-    // 使用新的 GeoIP 服务
-    if ($geoIpService) {
-        return $geoIpService->getCountryName($ip);
-    }
-    
-    // 降级：使用旧的查询方式
-    // 检查数据库缓存
-    $cached = $db->getIpCountryNameCache($ip);
-    if ($cached) {
-        return $cached;
-    }
-    
-    // 调用getIpCountryCode会自动更新缓存
-    getIpCountryCode($ip);
-    
-    $cached = $db->getIpCountryNameCache($ip);
-    return $cached ?: '未知';
-}
-
-/**
- * 记录访问统计
- */
-function recordVisit($target_ip, $visitor_ip) {
-    global $db;
-    $country = getIpCountry($visitor_ip);
-    $ua = substr($_SERVER['HTTP_USER_AGENT'] ?? '', 0, 200);
-    $db->recordVisit($target_ip, $visitor_ip, $country, $ua);
-}
-
-/**
- * 异步记录访问统计
- */
-function recordVisitAsync($target_ip, $visitor_ip) {
-    // 确保输出已发送
-    if (ob_get_level() > 0) {
-        ob_end_flush();
-    }
-    flush();
-    
-    // 关闭连接后继续执行
-    if (function_exists('fastcgi_finish_request')) {
-        fastcgi_finish_request();
-    }
-    
-    recordVisit($target_ip, $visitor_ip);
 }
 
 /**
@@ -219,80 +130,69 @@ function recordVisitAsync($target_ip, $visitor_ip) {
 function detectDeviceType() {
     $ua = $_SERVER['HTTP_USER_AGENT'] ?? '';
     
-    // iOS检测
     if (preg_match('/iphone|ipad|ipod/i', $ua)) {
         return 'ios';
     }
-    
-    // Android检测
     if (preg_match('/android/i', $ua)) {
         return 'android';
     }
-    
-    // 桌面设备检测
     if (preg_match('/windows|macintosh|mac os x|linux/i', $ua) && !preg_match('/android|mobile/i', $ua)) {
         return 'desktop';
-    }
-    
-    // 其他移动设备
-    if (preg_match('/mobile|webos|blackberry|opera mini|opera mobi|iemobile|windows phone/i', $ua)) {
-        return 'mobile';
     }
     
     return 'desktop';
 }
 
-/**
- * 检查是否应该拦截设备
- */
-function shouldBlockDevice($redirect_config) {
-    $device_type = detectDeviceType();
-    
-    if ($device_type === 'desktop' && !empty($redirect_config['block_desktop'])) {
-        return 'desktop';
-    }
-    
-    if ($device_type === 'ios' && !empty($redirect_config['block_ios'])) {
-        return 'ios';
-    }
-    
-    if ($device_type === 'android' && !empty($redirect_config['block_android'])) {
-        return 'android';
-    }
-    
-    return false;
-}
-
 // 主逻辑
 $target_url = $_pre_target_url;
-$matched_ip = $_pre_matched_ip;
-$matched_config = $_pre_matched_config;
+$matched_rule = $_pre_matched_rule;
 
-// 检查设备拦截
-$blocked_device = $matched_config ? shouldBlockDevice($matched_config) : false;
-
-// 检查国家白名单
-$blocked_country = false;
-if ($matched_config && !empty($matched_config['country_whitelist_enabled']) && !empty($matched_config['country_whitelist'])) {
-    $visitor_ip = getVisitorIp();
-    $visitor_country = getIpCountryCode($visitor_ip);
-    $allowed_countries = is_array($matched_config['country_whitelist']) 
-        ? $matched_config['country_whitelist'] 
-        : json_decode($matched_config['country_whitelist'], true) ?? [];
-    $allowed_countries = array_map('strtoupper', $allowed_countries);
-    
-    if (!in_array(strtoupper($visitor_country), $allowed_countries)) {
-        $blocked_country = $visitor_country;
-    }
+// 检查规则是否有效
+if ($matched_rule && !$jumpService->isValid($matched_rule)) {
+    $matched_rule = null;
+    $target_url = null;
 }
 
-if ($target_url && $matched_config && !$blocked_device && !$blocked_country) {
+// 检查设备拦截
+$blocked_device = null;
+if ($matched_rule) {
+    $blocked_device = $jumpService->checkDeviceBlock($matched_rule, detectDeviceType());
+}
+
+// 检查国家白名单
+$blocked_country = null;
+if ($matched_rule && $matched_rule['country_whitelist_enabled']) {
+    $visitor_ip = getVisitorIp();
+    $visitor_country = getIpCountryCode($visitor_ip);
+    $blocked_country = $jumpService->checkCountryBlock($matched_rule, $visitor_country);
+}
+
+if ($target_url && $matched_rule && !$blocked_device && !$blocked_country) {
     // 执行跳转
     $visitor_ip = getVisitorIp();
+    $ua = $_SERVER['HTTP_USER_AGENT'] ?? '';
+    $referer = $_SERVER['HTTP_REFERER'] ?? '';
+    $deviceInfo = JumpService::parseUserAgent($ua);
     
-    // 注册关闭函数，异步记录统计
-    register_shutdown_function(function() use ($matched_ip, $visitor_ip) {
-        recordVisitAsync($matched_ip, $visitor_ip);
+    // 记录点击统计
+    $visitorInfo = [
+        'ip' => $visitor_ip,
+        'country' => getIpCountryCode($visitor_ip),
+        'device_type' => $deviceInfo['device_type'],
+        'os' => $deviceInfo['os'],
+        'browser' => $deviceInfo['browser'],
+        'user_agent' => substr($ua, 0, 500),
+        'referer' => substr($referer, 0, 500)
+    ];
+    
+    // 异步记录（使用 register_shutdown_function）
+    register_shutdown_function(function() use ($jumpService, $matched_rule, $visitorInfo) {
+        $jumpService->recordClick(
+            $matched_rule['id'],
+            $matched_rule['rule_type'],
+            $matched_rule['match_key'],
+            $visitorInfo
+        );
     });
     
     header("Location: " . $target_url, true, 302);
